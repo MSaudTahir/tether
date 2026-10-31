@@ -1,0 +1,503 @@
+"""Main window: device list on the left, the selected device and its apps on the right."""
+
+import re
+import subprocess
+import threading
+import zlib
+from functools import lru_cache
+from pathlib import Path
+
+from PySide6.QtCore import QObject, QSettings, QSize, QStandardPaths, Qt, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtWidgets import (
+    QComboBox,
+    QDialog,
+    QDialogButtonBox,
+    QFileDialog,
+    QFormLayout,
+    QHBoxLayout,
+    QInputDialog,
+    QLabel,
+    QLineEdit,
+    QListView,
+    QListWidget,
+    QListWidgetItem,
+    QMainWindow,
+    QMessageBox,
+    QPushButton,
+    QSplitter,
+    QStackedWidget,
+    QVBoxLayout,
+    QWidget,
+)
+
+from .adb import NO_WINDOW, Adb, list_apps, scrcpy_env
+from .toolchain import Toolchain
+
+VD_PRESETS = ["1280x800/200", "1920x1080/280", "2560x1440/360", "Device size"]
+VIRTUAL_DISPLAY_MIN_SDK = 29  # Android 10
+NO_DEVICE = "No device connected.\n\nPlug in a phone with USB debugging enabled,\nor use “Pair wireless…”."
+STATE_HINTS = {
+    "unauthorized": "Unlock the phone and accept the “Allow USB debugging?” prompt.",
+    "offline": "The device is offline. Try reconnecting it.",
+    "no permissions": "No permission to access this device.\nOn Linux, add a udev rule for it.",
+}
+
+
+class Bg(QObject):
+    """Runs blocking calls off the UI thread and delivers (result, error) back on it."""
+
+    _done = Signal(object, object, object)
+
+    def __init__(self):
+        super().__init__()
+        self._done.connect(self._dispatch)
+
+    def run(self, fn, callback, long_running=False):
+        def task():
+            try:
+                result, error = fn(), None
+            except Exception as e:
+                result, error = None, e
+            try:
+                self._done.emit(callback, result, error)
+            except RuntimeError:
+                pass  # window closed while the task was running
+
+        # Long-running tasks (scrcpy sessions) get their own thread so they can't starve the pool.
+        if long_running:
+            threading.Thread(target=task, daemon=True).start()
+        else:
+            QThreadPool.globalInstance().start(task)
+
+    @Slot(object, object, object)
+    def _dispatch(self, callback, result, error):
+        callback(result, error)
+
+
+@lru_cache(maxsize=None)
+def avatar(name, size=48):
+    """Placeholder app icon: first letter on a color derived from the name."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(Qt.NoPen)
+    p.setBrush(QColor.fromHsv(zlib.crc32(name.encode()) % 360, 120, 200))
+    p.drawRoundedRect(0, 0, size, size, size / 4, size / 4)
+    font = p.font()
+    font.setPixelSize(size // 2)
+    font.setBold(True)
+    p.setFont(font)
+    p.setPen(Qt.white)
+    p.drawText(pixmap.rect(), Qt.AlignCenter, name[:1].upper())
+    p.end()
+    return QIcon(pixmap)
+
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("MyDevice")
+        self.resize(1000, 680)
+        self.settings = QSettings()
+        self.tools = Toolchain(Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)))
+        self.bg = Bg()
+        self.adb = None
+        self.devices = {}  # serial -> Device
+        self.device_key = None  # last device list, to skip redundant redraws
+        self.serial = None  # selected device
+        self.apps = {}  # serial -> [(name, package, is_system)]
+        self.sessions = []  # running scrcpy processes
+        self.latest = None  # newest scrcpy release, if newer than ours
+        self.polling = False
+        self.ticks = 0
+
+        self.build_ui()
+        self.apply_adb()
+        self.check_updates()
+        self.timer = QTimer(self, interval=2000, timeout=self.poll)
+        self.timer.start()
+        self.poll()
+
+    def build_ui(self):
+        toolbar = self.addToolBar("Main")
+        toolbar.setMovable(False)
+        toolbar.addAction("Refresh", self.reload)
+        toolbar.addAction("Pair wireless…", self.pair_dialog)
+        toolbar.addAction("ADB…", self.choose_adb)
+
+        self.device_list = QListWidget()
+        self.device_list.setMinimumWidth(220)
+        self.device_list.currentItemChanged.connect(
+            lambda item: self.show_device(item.data(Qt.UserRole) if item else None)
+        )
+
+        self.thumb = QLabel(alignment=Qt.AlignCenter)
+        self.thumb.setFixedSize(150, 300)
+        self.thumb.setStyleSheet("background: #111; border-radius: 12px; color: #888;")
+        self.name_label = QLabel()
+        self.name_label.setStyleSheet("font-size: 22px; font-weight: 600;")
+        self.details = QLabel()
+        self.details.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.mirror_btn = QPushButton("Mirror screen", clicked=self.mirror)
+        self.wireless_btn = QPushButton("Go wireless", clicked=self.go_wireless)
+        self.vd_size = QComboBox(editable=True)
+        self.vd_size.addItems(VD_PRESETS)
+        self.vd_size.setCurrentText(self.settings.value("vd_size", VD_PRESETS[1]))
+        self.vd_size.setToolTip("App window size as WIDTHxHEIGHT/DPI, e.g. 1600x1000/240")
+
+        buttons = QHBoxLayout()
+        buttons.addWidget(self.mirror_btn)
+        buttons.addWidget(self.wireless_btn)
+        buttons.addStretch()
+        size_row = QHBoxLayout()
+        size_row.addWidget(QLabel("App window size:"))
+        size_row.addWidget(self.vd_size)
+        size_row.addStretch()
+        info = QVBoxLayout()
+        info.addWidget(self.name_label)
+        info.addWidget(self.details)
+        info.addStretch()
+        info.addLayout(buttons)
+        info.addLayout(size_row)
+        header = QHBoxLayout()
+        header.addWidget(self.thumb)
+        header.addLayout(info, 1)
+
+        self.app_hint = QLabel()
+        self.filter = QLineEdit(placeholderText="Filter apps…", clearButtonEnabled=True)
+        self.filter.textChanged.connect(self.show_apps)
+        self.app_grid = QListWidget()
+        self.app_grid.setViewMode(QListView.IconMode)
+        self.app_grid.setIconSize(QSize(48, 48))
+        self.app_grid.setGridSize(QSize(100, 92))
+        self.app_grid.setResizeMode(QListView.Adjust)
+        self.app_grid.setMovement(QListView.Static)
+        self.app_grid.setWordWrap(True)
+        self.app_grid.itemActivated.connect(self.launch_app)
+        apps_row = QHBoxLayout()
+        apps_row.addWidget(self.app_hint, 1)
+        apps_row.addWidget(self.filter)
+
+        detail = QWidget()
+        layout = QVBoxLayout(detail)
+        layout.addLayout(header)
+        layout.addSpacing(12)
+        layout.addLayout(apps_row)
+        layout.addWidget(self.app_grid, 1)
+
+        self.empty = QLabel(NO_DEVICE, alignment=Qt.AlignCenter)
+        self.stack = QStackedWidget()
+        self.stack.addWidget(self.empty)
+        self.stack.addWidget(detail)
+
+        splitter = QSplitter()
+        splitter.addWidget(self.device_list)
+        splitter.addWidget(self.stack)
+        splitter.setStretchFactor(1, 1)
+        self.setCentralWidget(splitter)
+
+        self.tool_label = QLabel()
+        self.update_btn = QPushButton(visible=False, clicked=lambda: self.install_scrcpy(self.latest))
+        self.statusBar().addPermanentWidget(self.tool_label)
+        self.statusBar().addPermanentWidget(self.update_btn)
+
+    # --- scrcpy & adb -------------------------------------------------------
+
+    def apply_adb(self):
+        path = self.tools.resolve_adb(self.settings.value("adb", "auto"))
+        self.adb = Adb(path) if path else None
+        self.device_key = None
+        version = self.tools.installed_version()
+        scrcpy = f"scrcpy {version}" if version else "scrcpy (system)" if self.tools.scrcpy_path() else "no scrcpy"
+        self.tool_label.setText(f"{scrcpy}  ·  adb: {path or 'not found'}")
+
+    def check_updates(self):
+        def done(latest, error):
+            if error or not latest:
+                return
+            if not self.tools.installed_version():
+                self.install_scrcpy(latest)
+            elif latest[0] != self.tools.installed_version():
+                self.latest = latest
+                self.update_btn.setText(f"Update scrcpy to {latest[0]}")
+                self.update_btn.show()
+
+        self.bg.run(self.tools.latest_release, done)
+
+    def install_scrcpy(self, release):
+        self.update_btn.hide()
+        self.statusBar().showMessage(f"Downloading scrcpy {release[0]}…")
+
+        def done(_, error):
+            if error:
+                self.statusBar().clearMessage()
+                QMessageBox.warning(self, "scrcpy", f"Couldn't install scrcpy {release[0]}:\n{error}")
+                return
+            self.statusBar().showMessage(f"scrcpy {release[0]} installed", 5000)
+            self.apply_adb()  # the bundled adb may be the only one available
+            self.reload()
+
+        self.bg.run(lambda: self.tools.install(*release), done)
+
+    def choose_adb(self):
+        found = self.tools.adb_candidates()
+        keys = ["auto", *found, "custom"]
+        labels = ["Auto (Android Studio → system → bundled)"]
+        labels += [f"{key.title()}: {path}" for key, path in found.items()]
+        labels += ["Custom…"]
+        current = self.settings.value("adb", "auto")
+        label, ok = QInputDialog.getItem(
+            self, "ADB", "Which adb should MyDevice use?", labels, keys.index(current) if current in keys else 0, False
+        )
+        if not ok:
+            return
+        choice = keys[labels.index(label)]
+        if choice == "custom":
+            choice, _ = QFileDialog.getOpenFileName(self, "Choose adb")
+            if not choice:
+                return
+        self.settings.setValue("adb", choice)
+        self.apply_adb()
+        self.poll()
+
+    # --- devices ------------------------------------------------------------
+
+    def poll(self):
+        if self.polling or not self.adb:
+            return
+        self.polling = True
+        self.bg.run(self.adb.devices, self.on_devices)
+        self.ticks += 1
+        if self.ticks % 5 == 0:
+            self.refresh()
+
+    def on_devices(self, devices, error):
+        self.polling = False
+        if error:
+            self.statusBar().showMessage(f"adb: {error}", 4000)
+            return
+        key = [(d.serial, d.state, d.model) for d in devices]
+        if key == self.device_key:
+            return
+        self.device_key = key
+        self.devices = {d.serial: d for d in devices}
+
+        target = self.serial if self.serial in self.devices else next(iter(self.devices), None)
+        self.device_list.blockSignals(True)
+        self.device_list.clear()
+        for d in devices:
+            item = QListWidgetItem(f"{d.label}\n{'Wi-Fi' if d.wireless else 'USB'} · {d.state}")
+            item.setData(Qt.UserRole, d.serial)
+            item.setSizeHint(QSize(0, 48))
+            self.device_list.addItem(item)
+            if d.serial == target:
+                self.device_list.setCurrentItem(item)
+        self.device_list.blockSignals(False)
+        self.show_device(target)
+
+    def show_device(self, serial):
+        self.serial = serial
+        device = self.devices.get(serial)
+        if not device or device.state != "device":
+            self.empty.setText(STATE_HINTS.get(device.state, f"Device is {device.state}.") if device else NO_DEVICE)
+            self.stack.setCurrentIndex(0)
+            return
+        self.stack.setCurrentIndex(1)
+        self.name_label.setText(device.label)
+        self.details.setText(serial)
+        self.thumb.setText("…")
+        self.wireless_btn.setVisible(not device.wireless)
+        self.show_apps()
+        self.refresh()
+
+    def selected(self):
+        device = self.devices.get(self.serial)
+        return device if device and device.state == "device" else None
+
+    def reload(self):
+        self.apps.pop(self.serial, None)
+        self.refresh()
+
+    def refresh(self):
+        """Refresh info and screenshot of the selected device; load its apps if needed."""
+        device = self.selected()
+        if not device or not self.adb:
+            return
+        serial, adb = device.serial, self.adb
+        self.bg.run(lambda: adb.info(serial), lambda info, error: self.on_info(serial, info, error))
+        self.bg.run(lambda: adb.screenshot(serial), lambda png, error: self.on_screenshot(serial, png, error))
+
+        scrcpy = self.tools.scrcpy_path()
+        if scrcpy and serial not in self.apps:
+            self.apps[serial] = []
+            self.app_hint.setText("Loading apps…")
+            self.bg.run(
+                lambda: list_apps(scrcpy, adb.path, serial), lambda apps, error: self.on_apps(serial, apps, error)
+            )
+
+    def on_info(self, serial, info, error):
+        if serial != self.serial:
+            return
+        if error:
+            self.details.setText(f"{serial}\nCouldn't read device info: {error}")
+            return
+        self.name_label.setText(info.name)
+        self.details.setText(
+            f"{info.model}\nAndroid {info.android}\nBattery {info.battery}% · {info.power}\n{serial}"
+        )
+        supported = info.sdk >= VIRTUAL_DISPLAY_MIN_SDK
+        self.app_grid.setEnabled(supported)
+        self.vd_size.setEnabled(supported)
+        if not supported:
+            self.app_hint.setText("App windows need Android 10 or newer.")
+
+    def on_screenshot(self, serial, png, error):
+        if serial != self.serial or error:
+            return
+        pixmap = QPixmap()
+        pixmap.loadFromData(png)
+        self.thumb.setPixmap(pixmap.scaled(self.thumb.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
+
+    def on_apps(self, serial, apps, error):
+        if error:
+            self.apps.pop(serial, None)
+            if serial == self.serial:
+                self.app_hint.setText(f"Couldn't list apps: {error}")
+            return
+        self.apps[serial] = apps
+        if serial == self.serial:
+            self.show_apps()
+
+    def show_apps(self):
+        self.app_grid.clear()
+        text = self.filter.text().lower()
+        apps = self.apps.get(self.serial, [])
+        for name, package, _ in apps:
+            if text in name.lower() or text in package:
+                item = QListWidgetItem(avatar(name), name)
+                item.setData(Qt.UserRole, package)
+                item.setToolTip(package)
+                self.app_grid.addItem(item)
+        if apps:
+            self.app_hint.setText("Double-click an app to open it in its own window.")
+
+    # --- wireless -----------------------------------------------------------
+
+    def go_wireless(self):
+        device = self.selected()
+        if not device:
+            return
+        adb = self.adb
+        self.statusBar().showMessage("Switching to Wi-Fi…")
+
+        def done(address, error):
+            self.statusBar().clearMessage()
+            if error:
+                QMessageBox.warning(self, "Go wireless", str(error))
+            else:
+                self.statusBar().showMessage(f"Connected over Wi-Fi at {address}. You can unplug the cable.", 8000)
+                self.poll()
+
+        self.bg.run(lambda: adb.go_wireless(device.serial), done)
+
+    def pair_dialog(self):
+        if not self.adb:
+            return
+        dialog = QDialog(self, windowTitle="Pair over Wi-Fi")
+        form = QFormLayout(dialog)
+        form.addRow(
+            QLabel(
+                "On the phone: Developer options → Wireless debugging → Pair device with pairing code.\n"
+                "The phone and this computer must be on the same network.\n"
+                "Already paired? Just fill in the connect address.",
+                wordWrap=True,
+            )
+        )
+        pair_address = QLineEdit(placeholderText="192.168.1.20:37099")
+        code = QLineEdit(placeholderText="123456")
+        connect_address = QLineEdit(placeholderText="192.168.1.20:41235 (from the Wireless debugging screen)")
+        form.addRow("Pairing IP:port", pair_address)
+        form.addRow("Pairing code", code)
+        form.addRow("Connect IP:port", connect_address)
+        form.addRow(
+            QDialogButtonBox(
+                QDialogButtonBox.Ok | QDialogButtonBox.Cancel, accepted=dialog.accept, rejected=dialog.reject
+            )
+        )
+        if dialog.exec() != QDialog.Accepted:
+            return
+
+        adb = self.adb
+        pair, pin, address = pair_address.text().strip(), code.text().strip(), connect_address.text().strip()
+
+        def job():
+            if pair and pin:
+                adb.pair(pair, pin)
+            if address:
+                adb.connect(address)
+
+        def done(_, error):
+            if error:
+                QMessageBox.warning(self, "Pair over Wi-Fi", str(error))
+            else:
+                self.statusBar().showMessage("Done. The device will show up in the list shortly.", 6000)
+                self.poll()
+
+        self.bg.run(job, done)
+
+    # --- mirroring ----------------------------------------------------------
+
+    def mirror(self):
+        device = self.selected()
+        if device:
+            self.launch(["-s", device.serial, f"--window-title={self.name_label.text()}"])
+
+    def launch_app(self, item):
+        device = self.selected()
+        size = self.vd_size.currentText().strip()
+        if not device:
+            return
+        if size != "Device size" and not re.fullmatch(r"(\d+x\d+)?(/\d+)?", size):
+            QMessageBox.warning(self, "App window size", "Use WIDTHxHEIGHT/DPI, e.g. 1920x1080/280.")
+            return
+        self.settings.setValue("vd_size", size)
+        display = "--new-display" if size == "Device size" else f"--new-display={size}"
+        self.launch(
+            [
+                "-s",
+                device.serial,
+                display,
+                f"--start-app={item.data(Qt.UserRole)}",
+                f"--window-title={item.text()} · {self.name_label.text()}",
+            ]
+        )
+
+    def launch(self, args):
+        scrcpy = self.tools.scrcpy_path()
+        if not scrcpy or not self.adb:
+            QMessageBox.warning(self, "MyDevice", "scrcpy isn't installed yet.")
+            return
+        proc = subprocess.Popen(
+            [scrcpy, *args],
+            env=scrcpy_env(self.adb.path),
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            creationflags=NO_WINDOW,
+        )
+        self.sessions.append(proc)
+
+        def done(output, error):
+            self.sessions.remove(proc)
+            if proc.returncode != 0 and output is not None:
+                lines = output.decode(errors="replace").splitlines()
+                errors = [line for line in lines if "ERROR" in line] or lines[-5:]
+                QMessageBox.warning(self, "scrcpy", "\n".join(errors) or f"scrcpy exited with {proc.returncode}")
+
+        self.bg.run(lambda: proc.communicate()[0], done, long_running=True)
+
+    def closeEvent(self, event):
+        for proc in self.sessions:
+            proc.terminate()
+        super().closeEvent(event)
