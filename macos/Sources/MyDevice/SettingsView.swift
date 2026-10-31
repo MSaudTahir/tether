@@ -9,6 +9,16 @@ struct SettingsView: View {
             Section("adb") {
                 AdbPicker()
             }
+            Section {
+                Toggle("Capture the mouse", isOn: Binding(
+                    get: { model.config.captureMouse }, set: { model.setCaptureMouse($0) }
+                ))
+            } header: {
+                Text("Mouse")
+            } footer: {
+                Text("Sends the mouse as a real mouse, for games and apps that capture the pointer (Android 8+). Press Left ⌥ or ⌘ to release it.")
+                    .foregroundStyle(.secondary)
+            }
             Section("scrcpy") {
                 LabeledContent("In use", value: model.core.scrcpyPath() ?? "Not found")
                 HStack {

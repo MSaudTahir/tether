@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 import Observation
 
 /// DeviceApp state. Core calls block (adb, scrcpy, downloads), so they run off the main actor via `background`.
@@ -101,12 +101,12 @@ final class AppModel {
 
     func mirror(_ device: Device) {
         let title = info[device.serial]?.name ?? device.label
-        run { core in try core.mirror(serial: device.serial, title: title) }
+        launch { core in try core.mirror(serial: device.serial, title: title) }
     }
 
     func open(_ app: DeviceApp, on device: Device) {
         let title = "\(app.name) · \(info[device.serial]?.name ?? device.label)"
-        run { core in try core.openApp(serial: device.serial, package: app.package, title: title) }
+        launch { core in try core.openApp(serial: device.serial, package: app.package, title: title) }
     }
 
     func goWireless(_ device: Device) {
@@ -123,13 +123,19 @@ final class AppModel {
         await refreshDevices()
     }
 
-    func setWindowSize(_ size: String) {
-        guard validWindowSize(size: size) else {
-            alert = "Window size must look like 1920x1080/280."
-            return
-        }
+    func setWindowSize(_ size: WindowSize) {
         var config = config
-        config.windowSize = size
+        config.windowSize = formatWindowSize(size: size)
+        save(config)
+    }
+
+    var windowSize: WindowSize {
+        parseWindowSize(text: config.windowSize) ?? WindowSize(width: 0, height: 0, dpi: 0)
+    }
+
+    func setCaptureMouse(_ on: Bool) {
+        var config = config
+        config.captureMouse = on
         save(config)
     }
 
@@ -174,6 +180,40 @@ final class AppModel {
             } catch {
                 alert = "Couldn't update scrcpy: \(error.localizedDescription)"
             }
+        }
+    }
+
+    /// Starts a scrcpy window, brings it to the front and reports how it ended.
+    private func launch(_ start: @escaping @Sendable (Core) throws -> Session) {
+        let core = core
+        Task {
+            do {
+                let session = try await offMain { try start(core) }
+                Task { await bringToFront(pid: pid_t(session.pid())) }
+                try await offMain { try session.wait() }
+            } catch {
+                alert = error.localizedDescription
+            }
+        }
+    }
+
+    /// Windows of processes we launch open behind us, so hand focus to scrcpy once its window appears.
+    private func bringToFront(pid: pid_t) async {
+        for _ in 0..<50 {  // up to 10 s
+            guard kill(pid, 0) == 0 else { return }  // exited (the error is reported by wait())
+            if hasWindow(pid), let app = NSRunningApplication(processIdentifier: pid) {
+                NSApp.yieldActivation(to: app)
+                app.activate(from: .current)
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+    }
+
+    private func hasWindow(_ pid: pid_t) -> Bool {
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+        return windows.contains {
+            $0[kCGWindowOwnerPID as String] as? pid_t == pid && $0[kCGWindowLayer as String] as? Int == 0
         }
     }
 

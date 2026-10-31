@@ -5,13 +5,6 @@ private let stateHints = [
     "offline": "The device is offline. Try reconnecting it.",
 ]
 
-private let windowSizes: [(label: String, size: String)] = [
-    ("1280 × 800", "1280x800/200"),
-    ("1920 × 1080", "1920x1080/280"),
-    ("2560 × 1440", "2560x1440/360"),
-    ("Same as Device", ""),
-]
-
 struct DeviceView: View {
     @Environment(AppModel.self) private var model
     let device: Device
@@ -55,16 +48,25 @@ struct DeviceHeader: View {
                     Pill(text: "\(info.battery)% · \(info.power.capitalizedFirst)", systemImage: batterySymbol(info))
                 }
                 Pill(text: device.wireless ? "Wi-Fi" : "USB", systemImage: device.wireless ? "wifi" : "cable.connector")
-                Pill(text: device.serial, systemImage: "number")
+                Pill(text: device.shortSerial, systemImage: "number")
                     .textSelection(.enabled)
             }
             HStack(spacing: 10) {
                 Button("Mirror Screen", systemImage: "rectangle.on.rectangle") { model.mirror(device) }
                     .buttonStyle(.glassProminent)
+                    .keyboardShortcut("m", modifiers: [.command, .shift])
                 if !device.wireless {
                     Button("Go Wireless", systemImage: "wifi") { model.goWireless(device) }
                         .buttonStyle(.glass)
                 }
+                Toggle(
+                    "Capture Mouse",
+                    systemImage: "cursorarrow.rays",
+                    isOn: Binding(get: { model.config.captureMouse }, set: { model.setCaptureMouse($0) })
+                )
+                .toggleStyle(.button)
+                .buttonStyle(.glass)
+                .help("Use the mouse like a real one on the phone (for games and apps that capture the pointer). Press Left ⌥ or ⌘ to release it.")
             }
             .controlSize(.large)
             .padding(.top, 8)
@@ -85,8 +87,6 @@ struct AppsSection: View {
     @Environment(AppModel.self) private var model
     let device: Device
     let search: String
-    @State private var customSize = ""
-    @State private var showCustomSize = false
 
     private var apps: [DeviceApp] {
         let all = model.apps[device.serial] ?? []
@@ -106,9 +106,9 @@ struct AppsSection: View {
                     Text("\(all.count)").foregroundStyle(.secondary)
                 }
                 Spacer()
-                windowSizeMenu
+                WindowSizeButton()
             }
-            Text(supported ? "Click an app to open it in its own window." : "DeviceApp windows need Android 10 or newer.")
+            Text(supported ? "Click an app to open it in its own window." : "App windows need Android 10 or newer.")
                 .foregroundStyle(.secondary)
 
             if model.loadingApps.contains(device.serial) && model.apps[device.serial] == nil {
@@ -131,34 +131,6 @@ struct AppsSection: View {
                 .disabled(!supported)
             }
         }
-        .alert("Custom Window Size", isPresented: $showCustomSize) {
-            TextField("1600x1000/240", text: $customSize)
-            Button("Cancel", role: .cancel) {}
-            Button("Set") { model.setWindowSize(customSize) }
-        } message: {
-            Text("Width × height and density, as WIDTHxHEIGHT/DPI.")
-        }
-    }
-
-    private var windowSizeMenu: some View {
-        let current = model.config.windowSize
-        let label = windowSizes.first { $0.size == current }?.label ?? current
-        return Menu {
-            ForEach(windowSizes, id: \.size) { option in
-                Button(option.label) { model.setWindowSize(option.size) }
-            }
-            Divider()
-            Button("Custom…") {
-                customSize = current
-                showCustomSize = true
-            }
-        } label: {
-            Label("Window: \(label)", systemImage: "macwindow")
-        }
-        .menuStyle(.button)
-        .buttonStyle(.glass)
-        .fixedSize()
-        .help("Size of the virtual display apps open on")
     }
 }
 

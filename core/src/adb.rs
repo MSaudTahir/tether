@@ -98,7 +98,12 @@ pub fn parse_devices(out: &str) -> Vec<Device> {
             .unwrap_or_default();
         let wireless = serial.contains(':') || serial.contains("._adb-tls-connect.");
         let label = if model.is_empty() { serial.clone() } else { model.clone() };
-        devices.push(Device { serial, state, model, label, wireless });
+        let short_serial = serial
+            .strip_prefix("adb-")
+            .and_then(|rest| rest.split_once("._adb-tls-connect."))
+            .and_then(|(name, _)| name.rsplit_once('-'))
+            .map_or(serial.clone(), |(serial, _)| serial.to_string());
+        devices.push(Device { serial, state, model, label, short_serial, wireless });
     }
     devices
 }
@@ -152,6 +157,8 @@ mod tests {
         assert_eq!(devices.len(), 2);
         assert_eq!((devices[0].label.as_str(), devices[0].wireless), ("M2007J3SY", false));
         assert_eq!((devices[1].state.as_str(), devices[1].wireless), ("unauthorized", true));
+        let tls = parse_devices("adb-3acb3aa-eBd7lh._adb-tls-connect._tcp device model:M2007J3SY\n");
+        assert_eq!((tls[0].short_serial.as_str(), tls[0].wireless), ("3acb3aa", true));
     }
 
     #[test]

@@ -55,6 +55,7 @@ struct ContentView: View {
             ToolbarItem {
                 Button("Refresh", systemImage: "arrow.clockwise") { model.refresh() }
                     .help("Reload device info and the app list")
+                    .keyboardShortcut("r")
                     .disabled(model.selectedDevice?.state != "device")
             }
         }

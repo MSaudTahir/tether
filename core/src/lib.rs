@@ -4,20 +4,20 @@
 
 mod adb;
 mod apps;
+mod session;
 mod toolchain;
 mod util;
+mod window;
 
 use std::fs;
 use std::path::PathBuf;
-use std::process::{Child, Stdio};
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
 
 use adb::Adb;
 use serde::{Deserialize, Serialize};
+pub use session::Session;
 use toolchain::Toolchain;
-use util::{command, read_in_background, text};
+pub use window::*;
 
 uniffi::setup_scaffolding!();
 
@@ -55,6 +55,8 @@ pub struct Device {
     pub model: String,
     /// The model, or the serial if adb doesn't report one.
     pub label: String,
+    /// The serial for display: Wi-Fi pairings look like "adb-SERIAL-xxxx._adb-tls-connect._tcp".
+    pub short_serial: String,
     pub wireless: bool,
 }
 
@@ -101,12 +103,21 @@ pub struct Config {
     pub scrcpy: String,
     /// Virtual display size for app windows: "WIDTHxHEIGHT/DPI", or "" for the device's size.
     pub window_size: String,
+    /// Send the mouse as a real (UHID) mouse, captured in relative mode: for games and apps that use
+    /// pointer capture (Android 8+). Left Alt or Cmd gives the mouse back to the computer.
+    pub capture_mouse: bool,
     pub setup_done: bool,
 }
 
 impl Default for Config {
     fn default() -> Self {
-        Config { adb: "auto".into(), scrcpy: String::new(), window_size: "1920x1080/280".into(), setup_done: false }
+        Config {
+            adb: "auto".into(),
+            scrcpy: String::new(),
+            window_size: "1920x1080/280".into(),
+            capture_mouse: false,
+            setup_done: false,
+        }
     }
 }
 
@@ -118,7 +129,7 @@ pub struct Core {
     data_dir: PathBuf,
     tools: Toolchain,
     config: Mutex<Config>,
-    sessions: Mutex<Vec<Arc<Mutex<Child>>>>,
+    sessions: Mutex<Vec<Arc<Session>>>,
 }
 
 #[uniffi::export]
@@ -227,26 +238,25 @@ impl Core {
 
     // --- scrcpy sessions --------------------------------------------------
 
-    /// Mirrors the device's screen in a scrcpy window. Blocks until the window closes.
-    pub fn mirror(&self, serial: String, title: String) -> Result<()> {
-        self.run_scrcpy(vec!["-s".into(), serial, format!("--window-title={title}")])
+    /// Mirrors the device's screen in a scrcpy window.
+    pub fn mirror(&self, serial: String, title: String) -> Result<Arc<Session>> {
+        self.start_scrcpy(vec!["-s".into(), serial, format!("--window-title={title}")])
     }
 
-    /// Opens an app on a new virtual display (sized by the window_size setting) in its own window.
-    /// Blocks until the window closes.
-    pub fn open_app(&self, serial: String, package: String, title: String) -> Result<()> {
+    /// Opens an app in its own window, on a new virtual display sized by the window_size config.
+    pub fn open_app(&self, serial: String, package: String, title: String) -> Result<Arc<Session>> {
         let size = self.config().window_size;
-        if !valid_window_size(&size) {
+        if parse_window_size(size.clone()).is_none() {
             return Err(CoreError::Failed("Window size must look like 1920x1080/280.".into()));
         }
         let display = if size.is_empty() { "--new-display".into() } else { format!("--new-display={size}") };
-        self.run_scrcpy(vec!["-s".into(), serial, display, format!("--start-app={package}"), format!("--window-title={title}")])
+        self.start_scrcpy(vec!["-s".into(), serial, display, format!("--start-app={package}"), format!("--window-title={title}")])
     }
 
     /// Closes all scrcpy windows (call this when the app quits).
     pub fn stop_sessions(&self) {
         for session in self.sessions.lock().unwrap().drain(..) {
-            let _ = session.lock().unwrap().kill();
+            session.stop();
         }
     }
 }
@@ -256,28 +266,17 @@ impl Core {
         Ok(Adb { path: self.adb_path().ok_or_else(no_adb)? })
     }
 
-    fn run_scrcpy(&self, args: Vec<String>) -> Result<()> {
+    fn start_scrcpy(&self, mut args: Vec<String>) -> Result<Arc<Session>> {
         let scrcpy = self.scrcpy_path().ok_or_else(|| CoreError::Failed("scrcpy isn't installed. Open Setup.".into()))?;
         let adb = self.adb_path().ok_or_else(no_adb)?;
-        let mut child = command(&scrcpy).args(&args).env("ADB", adb).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
-        let stdout = read_in_background(child.stdout.take());
-        let stderr = read_in_background(child.stderr.take());
-        let session = Arc::new(Mutex::new(child));
-        self.sessions.lock().unwrap().push(session.clone());
-
-        let status = loop {
-            if let Some(status) = session.lock().unwrap().try_wait()? {
-                break status;
-            }
-            thread::sleep(Duration::from_millis(200));
-        };
-        self.sessions.lock().unwrap().retain(|s| !Arc::ptr_eq(s, &session));
-        if status.success() {
-            return Ok(());
+        if self.config().capture_mouse {
+            args.push("--mouse=uhid".into());
         }
-        let output = text(&stdout.join().unwrap_or_default()) + &text(&stderr.join().unwrap_or_default());
-        let errors: Vec<&str> = output.lines().filter(|l| l.contains("ERROR")).collect();
-        Err(CoreError::Failed(if errors.is_empty() { format!("scrcpy exited with {status}") } else { errors.join("\n") }))
+        let session = Session::spawn(&scrcpy, &adb, &args)?;
+        let mut sessions = self.sessions.lock().unwrap();
+        sessions.retain(|s| !s.finished());
+        sessions.push(session.clone());
+        Ok(session)
     }
 }
 
@@ -285,31 +284,7 @@ fn no_adb() -> CoreError {
     CoreError::Failed("No adb found. Open Setup to choose one.".into())
 }
 
-/// "" (device size), "WxH", "/DPI" or "WxH/DPI".
-#[uniffi::export]
-pub fn valid_window_size(size: &str) -> bool {
-    let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
-    let (dims, dpi) = size.split_once('/').map_or((size, None), |(d, p)| (d, Some(p)));
-    let dims_ok = dims.is_empty() || dims.split_once('x').is_some_and(|(w, h)| digits(w) && digits(h));
-    dims_ok && dpi.is_none_or(digits)
-}
-
 #[uniffi::export]
 pub fn virtual_display_min_sdk() -> u32 {
     VIRTUAL_DISPLAY_MIN_SDK
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn window_sizes() {
-        for ok in ["", "1920x1080", "1920x1080/280", "/240"] {
-            assert!(valid_window_size(ok), "{ok}");
-        }
-        for bad in ["1920", "1920x", "x1080", "1920x1080/", "abc", "1920x1080/2a"] {
-            assert!(!valid_window_size(bad), "{bad}");
-        }
-    }
 }
