@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QApplication, QDialog
 
 # Absolute imports so this file also works as the PyInstaller entry point.
 from mydevice.toolchain import Toolchain
-from mydevice.ui import MainWindow
+from mydevice.ui import STYLE, MainWindow
 from mydevice.wizard import SetupWizard
 
 
@@ -26,6 +26,8 @@ def main():
     app = QApplication(sys.argv)
     app.setOrganizationName("mydevice")
     app.setApplicationName("MyDevice")
+    app.setStyle("Fusion")  # consistent across platforms; STYLE builds on it
+    app.setStyleSheet(STYLE)
     data_dir = Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation))
     data_dir.mkdir(parents=True, exist_ok=True)
     log_errors(data_dir / "errors.log")

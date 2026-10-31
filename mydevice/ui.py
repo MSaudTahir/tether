@@ -5,8 +5,8 @@ import subprocess
 import zlib
 from functools import lru_cache
 
-from PySide6.QtCore import QSettings, QSize, Qt, QTimer
-from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
+from PySide6.QtCore import QPointF, QRectF, QSettings, QSize, Qt, QTimer
+from PySide6.QtGui import QColor, QIcon, QPainter, QPen, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
@@ -21,7 +21,6 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMessageBox,
     QPushButton,
-    QSplitter,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -42,8 +41,53 @@ STATE_HINTS = {
 }
 
 
+# Colors come from the palette (or are translucent), so light and dark mode both work.
+STYLE = """
+#sidebar { background: palette(alternate-base); border-right: 1px solid rgba(128, 128, 128, 0.25); }
+#caption { color: palette(placeholder-text); font-size: 11px; font-weight: 600; padding: 0 6px 6px; }
+#devices, #apps { border: none; background: transparent; outline: none; }
+#devices::item { border-radius: 8px; padding: 6px; margin: 1px 0; }
+#devices::item:hover { background: rgba(128, 128, 128, 0.12); }
+#devices::item:selected { background: palette(highlight); color: palette(highlighted-text); }
+#apps::item { border-radius: 12px; padding: 6px 2px; }
+#apps::item:hover { background: rgba(128, 128, 128, 0.12); }
+#apps::item:selected { background: rgba(128, 128, 128, 0.24); color: palette(text); }
+#title { font-size: 28px; font-weight: 700; }
+#section { font-size: 17px; font-weight: 600; }
+#muted, QStatusBar QLabel { color: palette(placeholder-text); }
+#empty { color: palette(placeholder-text); font-size: 15px; }
+#pill { background: rgba(128, 128, 128, 0.15); border-radius: 10px; padding: 3px 10px; font-size: 12px; }
+QPushButton { padding: 7px 16px; border-radius: 8px; border: 1px solid rgba(128, 128, 128, 0.35);
+              background: rgba(128, 128, 128, 0.08); }
+QPushButton:hover { background: rgba(128, 128, 128, 0.18); }
+QPushButton#primary { background: palette(highlight); color: palette(highlighted-text); border: none; font-weight: 600; }
+QLineEdit { padding: 6px 10px; border-radius: 8px; border: 1px solid rgba(128, 128, 128, 0.35); background: palette(base); }
+QToolBar { border: none; spacing: 4px; padding: 6px 8px; }
+QToolButton { padding: 5px 10px; border-radius: 6px; }
+QToolButton:hover { background: rgba(128, 128, 128, 0.15); }
+QStatusBar { border-top: 1px solid rgba(128, 128, 128, 0.2); }
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar::handle:vertical { background: rgba(128, 128, 128, 0.45); border-radius: 3px; min-height: 30px; }
+QScrollBar::add-line, QScrollBar::sub-line, QScrollBar::add-page, QScrollBar::sub-page { height: 0; background: none; }
+"""
+
+
 @lru_cache(maxsize=None)
-def avatar(name, size=48):
+def phone_icon(size=28):
+    """Sidebar device glyph: a simple phone outline."""
+    pixmap = QPixmap(size, size)
+    pixmap.fill(Qt.transparent)
+    p = QPainter(pixmap)
+    p.setRenderHint(QPainter.Antialiasing)
+    p.setPen(QPen(QColor(128, 128, 128), 2))
+    p.drawRoundedRect(QRectF(size * 0.28, size * 0.08, size * 0.44, size * 0.84), 4, 4)
+    p.drawLine(QPointF(size * 0.44, size * 0.8), QPointF(size * 0.56, size * 0.8))
+    p.end()
+    return QIcon(pixmap)
+
+
+@lru_cache(maxsize=None)
+def avatar(name, size=56):
     """Placeholder app icon: first letter on a color derived from the name."""
     pixmap = QPixmap(size, size)
     pixmap.fill(Qt.transparent)
@@ -95,72 +139,102 @@ class MainWindow(QMainWindow):
         toolbar.addAction("Pair wireless…", self.pair_dialog)
         toolbar.addAction("Setup…", self.run_setup)
 
-        self.device_list = QListWidget()
-        self.device_list.setMinimumWidth(220)
+        # Sidebar
+        self.device_list = QListWidget(objectName="devices")
+        self.device_list.setIconSize(QSize(28, 28))
         self.device_list.currentItemChanged.connect(
             lambda item: self.show_device(item.data(Qt.UserRole) if item else None)
         )
+        sidebar = QWidget(objectName="sidebar")
+        sidebar.setAttribute(Qt.WA_StyledBackground)
+        sidebar.setFixedWidth(240)
+        side = QVBoxLayout(sidebar)
+        side.setContentsMargins(12, 16, 12, 12)
+        side.addWidget(QLabel("DEVICES", objectName="caption"))
+        side.addWidget(self.device_list)
 
-        self.name_label = QLabel()
-        self.name_label.setStyleSheet("font-size: 22px; font-weight: 600;")
-        self.details = QLabel()
-        self.details.setTextInteractionFlags(Qt.TextSelectableByMouse)
-        self.mirror_btn = QPushButton("Mirror screen", clicked=self.mirror)
+        # Device header
+        self.name_label = QLabel(objectName="title")
+        self.subtitle = QLabel(objectName="muted")
+        self.battery_pill = QLabel(objectName="pill")
+        self.connection_pill = QLabel(objectName="pill")
+        self.serial_pill = QLabel(objectName="pill")
+        self.serial_pill.setTextInteractionFlags(Qt.TextSelectableByMouse)
+        self.serial_pill.setToolTip("Serial")
+        self.mirror_btn = QPushButton("Mirror screen", objectName="primary", clicked=self.mirror)
         self.wireless_btn = QPushButton("Go wireless", clicked=self.go_wireless)
-        self.vd_size = QComboBox(editable=True)
-        self.vd_size.addItems(VD_PRESETS)
-        self.vd_size.setCurrentText(self.settings.value("vd_size", VD_PRESETS[1]))
-        self.vd_size.setToolTip("App window size as WIDTHxHEIGHT/DPI, e.g. 1600x1000/240")
 
+        pills = QHBoxLayout()
+        pills.setSpacing(6)
+        for pill in (self.battery_pill, self.connection_pill, self.serial_pill):
+            pills.addWidget(pill)
+        pills.addStretch()
         buttons = QHBoxLayout()
         buttons.addWidget(self.mirror_btn)
         buttons.addWidget(self.wireless_btn)
         buttons.addStretch()
-        size_row = QHBoxLayout()
-        size_row.addWidget(QLabel("App window size:"))
-        size_row.addWidget(self.vd_size)
-        size_row.addStretch()
         header = QVBoxLayout()
+        header.setSpacing(4)
         header.addWidget(self.name_label)
-        header.addWidget(self.details)
-        header.addSpacing(8)
+        header.addWidget(self.subtitle)
+        header.addSpacing(6)
+        header.addLayout(pills)
+        header.addSpacing(14)
         header.addLayout(buttons)
-        header.addLayout(size_row)
 
-        self.app_hint = QLabel()
+        # Apps
+        self.app_count = QLabel(objectName="muted")
         self.filter = QLineEdit(placeholderText="Filter apps…", clearButtonEnabled=True)
+        self.filter.setFixedWidth(240)
         self.filter.textChanged.connect(self.show_apps)
-        self.app_grid = QListWidget()
+        self.app_hint = QLabel(objectName="muted")
+        self.vd_size = QComboBox(editable=True)
+        self.vd_size.addItems(VD_PRESETS)
+        self.vd_size.setCurrentText(self.settings.value("vd_size", VD_PRESETS[1]))
+        self.vd_size.setToolTip("App window size as WIDTHxHEIGHT/DPI, e.g. 1600x1000/240")
+        self.app_grid = QListWidget(objectName="apps")
         self.app_grid.setViewMode(QListView.IconMode)
-        self.app_grid.setIconSize(QSize(48, 48))
-        self.app_grid.setGridSize(QSize(100, 92))
+        self.app_grid.setIconSize(QSize(56, 56))
+        self.app_grid.setGridSize(QSize(108, 104))
         self.app_grid.setResizeMode(QListView.Adjust)
         self.app_grid.setMovement(QListView.Static)
         self.app_grid.setWordWrap(True)
+        self.app_grid.setSpacing(4)
         self.app_grid.itemActivated.connect(self.launch_app)
-        apps_row = QHBoxLayout()
-        apps_row.addWidget(self.app_hint, 1)
-        apps_row.addWidget(self.filter)
+
+        apps_title = QHBoxLayout()
+        apps_title.addWidget(QLabel("Apps", objectName="section"))
+        apps_title.addWidget(self.app_count)
+        apps_title.addStretch()
+        apps_title.addWidget(self.filter)
+        apps_info = QHBoxLayout()
+        apps_info.addWidget(self.app_hint, 1)
+        apps_info.addWidget(QLabel("Window size", objectName="muted"))
+        apps_info.addWidget(self.vd_size)
 
         detail = QWidget()
         layout = QVBoxLayout(detail)
+        layout.setContentsMargins(28, 24, 28, 12)
         layout.addLayout(header)
-        layout.addSpacing(12)
-        layout.addLayout(apps_row)
+        layout.addSpacing(24)
+        layout.addLayout(apps_title)
+        layout.addLayout(apps_info)
         layout.addWidget(self.app_grid, 1)
 
-        self.empty = QLabel(NO_DEVICE, alignment=Qt.AlignCenter)
+        self.empty = QLabel(NO_DEVICE, objectName="empty", alignment=Qt.AlignCenter)
         self.stack = QStackedWidget()
         self.stack.addWidget(self.empty)
         self.stack.addWidget(detail)
 
-        splitter = QSplitter()
-        splitter.addWidget(self.device_list)
-        splitter.addWidget(self.stack)
-        splitter.setStretchFactor(1, 1)
-        self.setCentralWidget(splitter)
+        central = QWidget()
+        row = QHBoxLayout(central)
+        row.setContentsMargins(0, 0, 0, 0)
+        row.setSpacing(0)
+        row.addWidget(sidebar)
+        row.addWidget(self.stack, 1)
+        self.setCentralWidget(central)
 
-        self.tool_label = QLabel()
+        self.tool_label = QLabel(objectName="muted")
         self.update_btn = QPushButton(visible=False, clicked=lambda: self.install_scrcpy(self.latest))
         self.statusBar().addPermanentWidget(self.tool_label)
         self.statusBar().addPermanentWidget(self.update_btn)
@@ -238,9 +312,12 @@ class MainWindow(QMainWindow):
         self.device_list.blockSignals(True)
         self.device_list.clear()
         for d in devices:
-            item = QListWidgetItem(f"{d.label}\n{'Wi-Fi' if d.wireless else 'USB'} · {d.state}")
+            status = "Wi-Fi" if d.wireless else "USB"
+            if d.state != "device":
+                status += f" · {d.state}"
+            item = QListWidgetItem(phone_icon(), f"{d.label}\n{status}")
             item.setData(Qt.UserRole, d.serial)
-            item.setSizeHint(QSize(0, 48))
+            item.setSizeHint(QSize(0, 52))
             self.device_list.addItem(item)
             if d.serial == target:
                 self.device_list.setCurrentItem(item)
@@ -256,7 +333,10 @@ class MainWindow(QMainWindow):
             return
         self.stack.setCurrentIndex(1)
         self.name_label.setText(device.label)
-        self.details.setText(serial)
+        self.subtitle.setText(device.model)
+        self.battery_pill.hide()
+        self.connection_pill.setText("Wi-Fi" if device.wireless else "USB")
+        self.serial_pill.setText(serial)
         self.wireless_btn.setVisible(not device.wireless)
         self.show_apps()
         self.refresh()
@@ -297,12 +377,12 @@ class MainWindow(QMainWindow):
         if serial != self.serial:
             return
         if error:
-            self.details.setText(f"{serial}\nCouldn't read device info: {error}")
+            self.subtitle.setText(f"Couldn't read device info: {error}")
             return
         self.name_label.setText(info.name)
-        self.details.setText(
-            f"{info.model}\nAndroid {info.android}\nBattery {info.battery}% · {info.power}\n{serial}"
-        )
+        self.subtitle.setText(f"{info.model} · Android {info.android}")
+        self.battery_pill.setText(f"Battery {info.battery}% · {info.power}")
+        self.battery_pill.show()
         supported = info.sdk >= VIRTUAL_DISPLAY_MIN_SDK
         self.app_grid.setEnabled(supported)
         self.vd_size.setEnabled(supported)
@@ -328,6 +408,7 @@ class MainWindow(QMainWindow):
                 item.setData(Qt.UserRole, app.package)
                 item.setToolTip(app.package)
                 self.app_grid.addItem(item)
+        self.app_count.setText(str(len(apps)) if apps else "")
         if self.serial in self.loading_apps:
             self.app_hint.setText("Loading apps…")
         elif apps:
