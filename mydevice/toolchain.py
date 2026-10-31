@@ -65,7 +65,10 @@ class Toolchain:
         path = self.root / version / f"{name}{EXE}" if version else None
         return str(path) if path and path.exists() else None
 
-    def scrcpy_path(self):
+    def resolve_scrcpy(self, choice=""):
+        """choice is "" for the bundled build, or a custom path."""
+        if choice and Path(choice).is_file():
+            return choice
         return self.bundled_file("scrcpy") or shutil.which("scrcpy")
 
     def adb_candidates(self):

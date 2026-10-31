@@ -2,21 +2,17 @@
 
 import re
 import subprocess
-import threading
 import zlib
 from functools import lru_cache
-from pathlib import Path
 
-from PySide6.QtCore import QObject, QSettings, QSize, QStandardPaths, Qt, QThreadPool, QTimer, Signal, Slot
+from PySide6.QtCore import QSettings, QSize, Qt, QTimer
 from PySide6.QtGui import QColor, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
     QDialogButtonBox,
-    QFileDialog,
     QFormLayout,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QListView,
@@ -31,8 +27,9 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from .adb import NO_WINDOW, Adb, list_apps, scrcpy_env
-from .toolchain import Toolchain
+from mydevice.adb import NO_WINDOW, Adb, list_apps, scrcpy_env
+from mydevice.tasks import Bg
+from mydevice.wizard import SetupWizard
 
 VD_PRESETS = ["1280x800/200", "1920x1080/280", "2560x1440/360", "Device size"]
 VIRTUAL_DISPLAY_MIN_SDK = 29  # Android 10
@@ -42,37 +39,6 @@ STATE_HINTS = {
     "offline": "The device is offline. Try reconnecting it.",
     "no permissions": "No permission to access this device.\nOn Linux, add a udev rule for it.",
 }
-
-
-class Bg(QObject):
-    """Runs blocking calls off the UI thread and delivers (result, error) back on it."""
-
-    _done = Signal(object, object, object)
-
-    def __init__(self):
-        super().__init__()
-        self._done.connect(self._dispatch)
-
-    def run(self, fn, callback, long_running=False):
-        def task():
-            try:
-                result, error = fn(), None
-            except Exception as e:
-                result, error = None, e
-            try:
-                self._done.emit(callback, result, error)
-            except RuntimeError:
-                pass  # window closed while the task was running
-
-        # Long-running tasks (scrcpy sessions) get their own thread so they can't starve the pool.
-        if long_running:
-            threading.Thread(target=task, daemon=True).start()
-        else:
-            QThreadPool.globalInstance().start(task)
-
-    @Slot(object, object, object)
-    def _dispatch(self, callback, result, error):
-        callback(result, error)
 
 
 @lru_cache(maxsize=None)
@@ -96,12 +62,12 @@ def avatar(name, size=48):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self):
+    def __init__(self, tools):
         super().__init__()
         self.setWindowTitle("MyDevice")
         self.resize(1000, 680)
         self.settings = QSettings()
-        self.tools = Toolchain(Path(QStandardPaths.writableLocation(QStandardPaths.AppDataLocation)))
+        self.tools = tools
         self.bg = Bg()
         self.adb = None
         self.devices = {}  # serial -> Device
@@ -125,7 +91,7 @@ class MainWindow(QMainWindow):
         toolbar.setMovable(False)
         toolbar.addAction("Refresh", self.reload)
         toolbar.addAction("Pair wireless…", self.pair_dialog)
-        toolbar.addAction("ADB…", self.choose_adb)
+        toolbar.addAction("Setup…", self.run_setup)
 
         self.device_list = QListWidget()
         self.device_list.setMinimumWidth(220)
@@ -205,26 +171,32 @@ class MainWindow(QMainWindow):
 
     # --- scrcpy & adb -------------------------------------------------------
 
+    def scrcpy(self):
+        return self.tools.resolve_scrcpy(self.settings.value("scrcpy", ""))
+
+    def using_bundled_scrcpy(self):
+        return not self.settings.value("scrcpy", "") and self.tools.installed_version()
+
     def apply_adb(self):
         path = self.tools.resolve_adb(self.settings.value("adb", "auto"))
         self.adb = Adb(path) if path else None
         self.device_key = None
-        version = self.tools.installed_version()
-        scrcpy = f"scrcpy {version}" if version else "scrcpy (system)" if self.tools.scrcpy_path() else "no scrcpy"
+        if self.using_bundled_scrcpy():
+            scrcpy = f"scrcpy {self.tools.installed_version()}"
+        else:
+            scrcpy = f"scrcpy: {self.scrcpy() or 'not found'}"
         self.tool_label.setText(f"{scrcpy}  ·  adb: {path or 'not found'}")
 
     def check_updates(self):
         def done(latest, error):
-            if error or not latest:
-                return
-            if not self.tools.installed_version():
-                self.install_scrcpy(latest)
-            elif latest[0] != self.tools.installed_version():
+            if not error and latest and self.using_bundled_scrcpy() and latest[0] != self.tools.installed_version():
                 self.latest = latest
                 self.update_btn.setText(f"Update scrcpy to {latest[0]}")
                 self.update_btn.show()
 
-        self.bg.run(self.tools.latest_release, done)
+        self.update_btn.hide()
+        if self.using_bundled_scrcpy():
+            self.bg.run(self.tools.latest_release, done)
 
     def install_scrcpy(self, release):
         self.update_btn.hide()
@@ -241,25 +213,11 @@ class MainWindow(QMainWindow):
 
         self.bg.run(lambda: self.tools.install(*release), done)
 
-    def choose_adb(self):
-        found = self.tools.adb_candidates()
-        keys = ["auto", *found, "custom"]
-        labels = ["Auto (Android Studio → system → bundled)"]
-        labels += [f"{key.title()}: {path}" for key, path in found.items()]
-        labels += ["Custom…"]
-        current = self.settings.value("adb", "auto")
-        label, ok = QInputDialog.getItem(
-            self, "ADB", "Which adb should MyDevice use?", labels, keys.index(current) if current in keys else 0, False
-        )
-        if not ok:
-            return
-        choice = keys[labels.index(label)]
-        if choice == "custom":
-            choice, _ = QFileDialog.getOpenFileName(self, "Choose adb")
-            if not choice:
-                return
-        self.settings.setValue("adb", choice)
+    def run_setup(self):
+        SetupWizard(self.tools, self).exec()
+        self.apps.clear()  # scrcpy may have changed
         self.apply_adb()
+        self.check_updates()
         self.poll()
 
     # --- devices ------------------------------------------------------------
@@ -329,7 +287,7 @@ class MainWindow(QMainWindow):
         self.bg.run(lambda: adb.info(serial), lambda info, error: self.on_info(serial, info, error))
         self.bg.run(lambda: adb.screenshot(serial), lambda png, error: self.on_screenshot(serial, png, error))
 
-        scrcpy = self.tools.scrcpy_path()
+        scrcpy = self.scrcpy()
         if scrcpy and serial not in self.apps:
             self.apps[serial] = []
             self.app_hint.setText("Loading apps…")
@@ -475,7 +433,7 @@ class MainWindow(QMainWindow):
         )
 
     def launch(self, args):
-        scrcpy = self.tools.scrcpy_path()
+        scrcpy = self.scrcpy()
         if not scrcpy or not self.adb:
             QMessageBox.warning(self, "MyDevice", "scrcpy isn't installed yet.")
             return
