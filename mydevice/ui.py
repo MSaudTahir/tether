@@ -27,7 +27,8 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from mydevice.adb import NO_WINDOW, Adb, list_apps, scrcpy_env
+from mydevice.adb import NO_WINDOW, Adb, scrcpy_env
+from mydevice.apps import load_apps
 from mydevice.tasks import Bg
 from mydevice.wizard import SetupWizard
 
@@ -62,22 +63,23 @@ def avatar(name, size=48):
 
 
 class MainWindow(QMainWindow):
-    def __init__(self, tools):
+    def __init__(self, tools, data_dir):
         super().__init__()
         self.setWindowTitle("MyDevice")
         self.resize(1000, 680)
         self.settings = QSettings()
         self.tools = tools
+        self.app_cache = data_dir / "apps"
         self.bg = Bg()
         self.adb = None
         self.devices = {}  # serial -> Device
         self.device_key = None  # last device list, to skip redundant redraws
         self.serial = None  # selected device
-        self.apps = {}  # serial -> [(name, package, is_system)]
+        self.apps = {}  # serial -> [App]
+        self.loading_apps = set()  # serials
         self.sessions = []  # running scrcpy processes
         self.latest = None  # newest scrcpy release, if newer than ours
         self.polling = False
-        self.ticks = 0
 
         self.build_ui()
         self.apply_adb()
@@ -89,7 +91,7 @@ class MainWindow(QMainWindow):
     def build_ui(self):
         toolbar = self.addToolBar("Main")
         toolbar.setMovable(False)
-        toolbar.addAction("Refresh", self.reload)
+        toolbar.addAction("Refresh", self.reload).setToolTip("Reload device info and the app list")
         toolbar.addAction("Pair wireless…", self.pair_dialog)
         toolbar.addAction("Setup…", self.run_setup)
 
@@ -209,7 +211,6 @@ class MainWindow(QMainWindow):
                 return
             self.statusBar().showMessage(f"scrcpy {release[0]} installed", 5000)
             self.apply_adb()  # the bundled adb may be the only one available
-            self.reload()
 
         self.bg.run(lambda: self.tools.install(*release), done)
 
@@ -227,9 +228,6 @@ class MainWindow(QMainWindow):
             return
         self.polling = True
         self.bg.run(self.adb.devices, self.on_devices)
-        self.ticks += 1
-        if self.ticks % 5 == 0:
-            self.refresh()
 
     def on_devices(self, devices, error):
         self.polling = False
@@ -269,17 +267,18 @@ class MainWindow(QMainWindow):
         self.wireless_btn.setVisible(not device.wireless)
         self.show_apps()
         self.refresh()
+        self.fetch_apps()
 
     def selected(self):
         device = self.devices.get(self.serial)
         return device if device and device.state == "device" else None
 
     def reload(self):
-        self.apps.pop(self.serial, None)
         self.refresh()
+        self.fetch_apps(force=True)
 
     def refresh(self):
-        """Refresh info and screenshot of the selected device; load its apps if needed."""
+        """Load info and a screenshot of the selected device."""
         device = self.selected()
         if not device or not self.adb:
             return
@@ -287,13 +286,20 @@ class MainWindow(QMainWindow):
         self.bg.run(lambda: adb.info(serial), lambda info, error: self.on_info(serial, info, error))
         self.bg.run(lambda: adb.screenshot(serial), lambda png, error: self.on_screenshot(serial, png, error))
 
-        scrcpy = self.scrcpy()
-        if scrcpy and serial not in self.apps:
-            self.apps[serial] = []
-            self.app_hint.setText("Loading apps…")
-            self.bg.run(
-                lambda: list_apps(scrcpy, adb.path, serial), lambda apps, error: self.on_apps(serial, apps, error)
-            )
+    def fetch_apps(self, force=False):
+        """Load the selected device's apps: from the disk cache, or from the device if forced or uncached."""
+        device = self.selected()
+        if not device or not self.adb or device.serial in self.loading_apps:
+            return
+        if device.serial in self.apps and not force:
+            return
+        serial, adb, scrcpy = device.serial, self.adb, self.scrcpy()
+        self.loading_apps.add(serial)
+        self.show_apps()
+        self.bg.run(
+            lambda: load_apps(adb, scrcpy, self.app_cache, serial, force),
+            lambda apps, error: self.on_apps(serial, apps, error),
+        )
 
     def on_info(self, serial, info, error):
         if serial != self.serial:
@@ -319,27 +325,30 @@ class MainWindow(QMainWindow):
         self.thumb.setPixmap(pixmap.scaled(self.thumb.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def on_apps(self, serial, apps, error):
-        if error:
-            self.apps.pop(serial, None)
-            if serial == self.serial:
-                self.app_hint.setText(f"Couldn't list apps: {error}")
-            return
-        self.apps[serial] = apps
+        self.loading_apps.discard(serial)
+        if not error:
+            self.apps[serial] = apps
         if serial == self.serial:
             self.show_apps()
+            if error:
+                self.app_hint.setText(f"Couldn't list apps: {error}\nPress Refresh to try again.")
 
     def show_apps(self):
         self.app_grid.clear()
         text = self.filter.text().lower()
         apps = self.apps.get(self.serial, [])
-        for name, package, _ in apps:
-            if text in name.lower() or text in package:
-                item = QListWidgetItem(avatar(name), name)
-                item.setData(Qt.UserRole, package)
-                item.setToolTip(package)
+        for app in apps:
+            if text in app.name.lower() or text in app.package:
+                item = QListWidgetItem(QIcon(app.icon) if app.icon else avatar(app.name), app.name)
+                item.setData(Qt.UserRole, app.package)
+                item.setToolTip(app.package)
                 self.app_grid.addItem(item)
-        if apps:
+        if self.serial in self.loading_apps:
+            self.app_hint.setText("Loading apps…")
+        elif apps:
             self.app_hint.setText("Double-click an app to open it in its own window.")
+        else:
+            self.app_hint.clear()
 
     # --- wireless -----------------------------------------------------------
 

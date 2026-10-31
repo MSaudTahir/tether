@@ -7,6 +7,9 @@ A small desktop app (macOS, Windows, Linux) for viewing Android devices, built o
 - **Mirror screen**: mirrors the device display in a scrcpy window.
 - **App windows**: double-click an app to open it on its own virtual display
   (`--new-display`, Android 10+) at a resolution you pick. Each app gets its own window.
+- App names and icons come from a tiny on-device helper (`helper/Helper.java`, run with `app_process`)
+  and are cached per device until you press **Refresh**. If the helper fails, the list comes from
+  `scrcpy --list-apps`, without icons.
 - A first-run setup wizard (re-open it via **Setup…**):
   1. downloads the latest scrcpy for your platform (checksum-verified), or uses your own;
   2. picks adb: Android Studio's, the system one or scrcpy's bundled one. Auto prefers Studio's so
@@ -23,7 +26,8 @@ python3 -m venv .venv
 .venv/bin/mydevice        # or: .venv/bin/python -m mydevice
 ```
 
-scrcpy is stored in the app data folder (e.g. `~/Library/Application Support/mydevice/MyDevice/scrcpy`).
+scrcpy, the app cache (`apps/`) and `errors.log` live in the app data folder
+(e.g. `~/Library/Application Support/mydevice/MyDevice`).
 
 ## Standalone executables
 
@@ -45,6 +49,8 @@ SmartScreen shows "More info → Run anyway". On Linux, Qt needs `libxcb-cursor0
 |---|---|
 | `mydevice/toolchain.py` | finding adb, downloading/updating scrcpy |
 | `mydevice/adb.py` | adb/scrcpy commands and output parsing (blocking) |
+| `mydevice/apps.py` | app list + icons via the helper, with the disk cache |
+| `helper/` | the on-device helper; `helper/build.sh` rebuilds `mydevice/helper.dex` (needs a JDK + Android SDK) |
 | `mydevice/wizard.py` | first-run setup |
 | `mydevice/ui.py` | the main window |
 | `mydevice/tasks.py` | `Bg`: runs blocking calls off the UI thread |
@@ -52,6 +58,6 @@ SmartScreen shows "More info → Run anyway". On Linux, Qt needs `libxcb-cursor0
 
 ## Next
 
-- Real app icons and wallpaper (needs a small on-device helper run via `app_process`)
+- Wallpaper (the helper can provide it too)
 - QR-code wireless pairing (mDNS)
 - Code signing / notarization, app icon

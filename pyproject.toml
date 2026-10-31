@@ -17,3 +17,4 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["mydevice"]
+package-data = { mydevice = ["helper.dex"] }

@@ -5,6 +5,7 @@
 PyInstaller can't cross-compile, so run this on each OS (CI does it on tag push).
 """
 
+import os
 import platform
 import shutil
 import subprocess
@@ -17,6 +18,7 @@ ARCH = {"amd64": "x86_64", "aarch64": "arm64"}.get(platform.machine().lower(), p
 DIST = Path("dist")
 
 args = ["--noconfirm", "--clean", "--windowed", "--name", NAME, "--paths", "."]
+args += ["--add-data", f"mydevice/helper.dex{os.pathsep}mydevice"]  # the on-device app/icon helper
 if sys.platform == "darwin":
     args += ["--osx-bundle-identifier", "app.mydevice"]  # a .app folder; onefile .apps start slowly
 else:
