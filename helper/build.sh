@@ -1,5 +1,5 @@
 #!/bin/sh
-# Rebuilds mydevice/helper.dex from Helper.java. Needs a JDK and the Android SDK (platform + build-tools).
+# Rebuilds helper/helper.dex from Helper.java (the Rust core embeds it). Needs a JDK and the Android SDK (platform + build-tools).
 set -e
 cd "$(dirname "$0")"
 SDK=${ANDROID_HOME:-$HOME/Library/Android/sdk}
@@ -9,6 +9,7 @@ OUT=$(mktemp -d)
 
 javac --release 11 -classpath "$JAR" -d "$OUT" Helper.java
 "$D8" --release --min-api 21 --lib "$JAR" --output "$OUT" "$OUT"/app/mydevice/*.class
-cp "$OUT/classes.dex" ../mydevice/helper.dex
+cp "$OUT/classes.dex" helper.dex
+cp helper.dex ../python/mydevice/helper.dex  # the Python app keeps its own copy until it is retired
 rm -rf "$OUT"
-echo "Built mydevice/helper.dex"
+echo "Built helper/helper.dex"
