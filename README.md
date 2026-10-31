@@ -3,7 +3,7 @@
 A small desktop app (macOS, Windows, Linux) for viewing Android devices, built on
 [scrcpy](https://github.com/Genymobile/scrcpy) and Qt (PySide6).
 
-- Lists USB and Wi-Fi devices live, with name, model, Android version, battery and a screenshot.
+- Lists USB and Wi-Fi devices live, with name, model, Android version and battery.
 - **Mirror screen**: mirrors the device display in a scrcpy window.
 - **App windows**: double-click an app to open it on its own virtual display
   (`--new-display`, Android 10+) at a resolution you pick. Each app gets its own window.

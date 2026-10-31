@@ -101,9 +101,6 @@ class MainWindow(QMainWindow):
             lambda item: self.show_device(item.data(Qt.UserRole) if item else None)
         )
 
-        self.thumb = QLabel(alignment=Qt.AlignCenter)
-        self.thumb.setFixedSize(150, 300)
-        self.thumb.setStyleSheet("background: #111; border-radius: 12px; color: #888;")
         self.name_label = QLabel()
         self.name_label.setStyleSheet("font-size: 22px; font-weight: 600;")
         self.details = QLabel()
@@ -123,15 +120,12 @@ class MainWindow(QMainWindow):
         size_row.addWidget(QLabel("App window size:"))
         size_row.addWidget(self.vd_size)
         size_row.addStretch()
-        info = QVBoxLayout()
-        info.addWidget(self.name_label)
-        info.addWidget(self.details)
-        info.addStretch()
-        info.addLayout(buttons)
-        info.addLayout(size_row)
-        header = QHBoxLayout()
-        header.addWidget(self.thumb)
-        header.addLayout(info, 1)
+        header = QVBoxLayout()
+        header.addWidget(self.name_label)
+        header.addWidget(self.details)
+        header.addSpacing(8)
+        header.addLayout(buttons)
+        header.addLayout(size_row)
 
         self.app_hint = QLabel()
         self.filter = QLineEdit(placeholderText="Filter apps…", clearButtonEnabled=True)
@@ -263,7 +257,6 @@ class MainWindow(QMainWindow):
         self.stack.setCurrentIndex(1)
         self.name_label.setText(device.label)
         self.details.setText(serial)
-        self.thumb.setText("…")
         self.wireless_btn.setVisible(not device.wireless)
         self.show_apps()
         self.refresh()
@@ -278,13 +271,12 @@ class MainWindow(QMainWindow):
         self.fetch_apps(force=True)
 
     def refresh(self):
-        """Load info and a screenshot of the selected device."""
+        """Load info about the selected device."""
         device = self.selected()
         if not device or not self.adb:
             return
         serial, adb = device.serial, self.adb
         self.bg.run(lambda: adb.info(serial), lambda info, error: self.on_info(serial, info, error))
-        self.bg.run(lambda: adb.screenshot(serial), lambda png, error: self.on_screenshot(serial, png, error))
 
     def fetch_apps(self, force=False):
         """Load the selected device's apps: from the disk cache, or from the device if forced or uncached."""
@@ -316,13 +308,6 @@ class MainWindow(QMainWindow):
         self.vd_size.setEnabled(supported)
         if not supported:
             self.app_hint.setText("App windows need Android 10 or newer.")
-
-    def on_screenshot(self, serial, png, error):
-        if serial != self.serial or error:
-            return
-        pixmap = QPixmap()
-        pixmap.loadFromData(png)
-        self.thumb.setPixmap(pixmap.scaled(self.thumb.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation))
 
     def on_apps(self, serial, apps, error):
         self.loading_apps.discard(serial)

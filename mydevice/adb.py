@@ -85,10 +85,6 @@ class Adb:
             power=power,
         )
 
-    def screenshot(self, serial):
-        """PNG bytes of the current screen."""
-        return self.run("exec-out", "screencap", "-p", serial=serial, timeout=20)
-
     def pair(self, address, code):
         out = self.text("pair", address, code, timeout=30)
         if "Successfully paired" not in out:
