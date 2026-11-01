@@ -60,14 +60,55 @@ pub struct Device {
     pub wireless: bool,
 }
 
+/// Details for a device's page. Empty strings and zeros mean the device didn't say.
 #[derive(Debug, Clone, uniffi::Record)]
 pub struct DeviceInfo {
     pub name: String,
     pub model: String,
     pub android: String,
     pub sdk: u32,
+    /// "2023-03-01"
+    pub security_patch: String,
+    /// "Qualcomm SM8250"
+    pub chipset: String,
     pub battery: u32,
+    /// "charging (AC)", "full", "on battery"
     pub power: String,
+    /// "good", "overheating", ...
+    pub battery_health: String,
+    /// °C
+    pub battery_temperature: f32,
+    /// Bytes.
+    pub memory_total: u64,
+    pub memory_available: u64,
+    pub storage_total: u64,
+    pub storage_used: u64,
+    /// "1080 × 2400 · 440 dpi"
+    pub screen: String,
+    pub uptime_seconds: u64,
+    pub wifi_address: Option<String>,
+    pub dark_mode: bool,
+    /// Screen stays on while charging (developer option).
+    pub stay_awake: bool,
+    pub screen_on: bool,
+}
+
+/// Buttons a phone has, for remote control.
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum DeviceKey {
+    Power,
+    VolumeUp,
+    VolumeDown,
+    Home,
+    Back,
+    RecentApps,
+}
+
+#[derive(Debug, Clone, Copy, uniffi::Enum)]
+pub enum RebootMode {
+    Normal,
+    Recovery,
+    Bootloader,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, uniffi::Record)]
@@ -235,6 +276,35 @@ impl Core {
     /// Switches a USB device to Wi-Fi. Returns the new address.
     pub fn go_wireless(&self, serial: String) -> Result<String> {
         self.adb()?.go_wireless(&serial)
+    }
+
+    // --- control -----------------------------------------------------------
+
+    /// Saves a PNG of the screen to `path`.
+    pub fn screenshot(&self, serial: String, path: String) -> Result<()> {
+        self.adb()?.screenshot(&serial, &path)
+    }
+
+    pub fn install_apk(&self, serial: String, path: String) -> Result<()> {
+        self.adb()?.install(&serial, &path)
+    }
+
+    pub fn press_key(&self, serial: String, key: DeviceKey) -> Result<()> {
+        self.adb()?.press_key(&serial, key)
+    }
+
+    pub fn set_dark_mode(&self, serial: String, on: bool) -> Result<()> {
+        self.adb()?.shell(&serial, &format!("cmd uimode night {}", if on { "yes" } else { "no" }))
+    }
+
+    /// Keeps the screen on while charging (the "Stay awake" developer option).
+    pub fn set_stay_awake(&self, serial: String, on: bool) -> Result<()> {
+        // 7 = on AC, USB and wireless charging.
+        self.adb()?.shell(&serial, &format!("settings put global stay_on_while_plugged_in {}", if on { 7 } else { 0 }))
+    }
+
+    pub fn reboot(&self, serial: String, mode: RebootMode) -> Result<()> {
+        self.adb()?.reboot(&serial, mode)
     }
 
     // --- scrcpy sessions --------------------------------------------------

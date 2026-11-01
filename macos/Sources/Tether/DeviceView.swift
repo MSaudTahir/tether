@@ -21,9 +21,19 @@ struct DeviceView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 28) {
                     DeviceHeader(device: device, info: model.info[device.serial])
+                    if let info = model.info[device.serial] {
+                        ControlsCard(device: device, info: info)
+                        DetailsCard(info: info)
+                    }
                     AppsSection(device: device, search: search)
                 }
                 .padding(28)
+            }
+            .dropDestination(for: URL.self) { urls, _ in
+                let apks = urls.filter { $0.pathExtension.lowercased() == "apk" }
+                guard !apks.isEmpty else { return false }
+                model.install(apks, on: device)
+                return true
             }
         }
     }

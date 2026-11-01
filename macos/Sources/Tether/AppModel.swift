@@ -42,8 +42,10 @@ final class AppModel {
         guard !started else { return }
         started = true
         Task {
-            while true {
+            for tick in 1... {
                 await refreshDevices()
+                // Keep battery, memory etc. current for the device on screen.
+                if tick % 15 == 0, let serial = selection { await loadInfo(serial) }
                 try? await Task.sleep(for: .seconds(2))
             }
         }
@@ -111,6 +113,77 @@ final class AppModel {
     func open(_ app: DeviceApp, on device: Device) {
         let title = "\(app.name) · \(info[device.serial]?.name ?? device.label)"
         launch { core in try core.openApp(serial: device.serial, package: app.package, title: title) }
+    }
+
+    /// Saves a screenshot to the Desktop and shows it in Finder.
+    func screenshot(_ device: Device) {
+        let date = DateFormatter()
+        date.dateFormat = "yyyy-MM-dd 'at' HH.mm.ss"  // like macOS screenshots
+        let name = "\(info[device.serial]?.name ?? device.label) \(date.string(from: .now))"
+        let url = URL.desktopDirectory.appending(path: "Screenshot \(name).png")
+        let core = core
+        Task {
+            do {
+                try await offMain { try core.screenshot(serial: device.serial, path: url.path) }
+                NSWorkspace.shared.activateFileViewerSelecting([url])
+            } catch {
+                alert = error.localizedDescription
+            }
+        }
+    }
+
+    /// Serials with an APK install in progress.
+    var installing: Set<String> = []
+
+    func install(_ apks: [URL], on device: Device) {
+        let core = core
+        installing.insert(device.serial)
+        Task {
+            defer { installing.remove(device.serial) }
+            for apk in apks {
+                do {
+                    try await offMain { try core.installApk(serial: device.serial, path: apk.path) }
+                } catch {
+                    alert = "Couldn't install \(apk.lastPathComponent): \(error.localizedDescription)"
+                }
+            }
+            await loadApps(device.serial, force: true)
+        }
+    }
+
+    func press(_ key: DeviceKey, on device: Device) {
+        run { core in try core.pressKey(serial: device.serial, key: key) }
+        if key == .power {
+            Task {
+                try? await Task.sleep(for: .milliseconds(600))
+                await loadInfo(device.serial)
+            }
+        }
+    }
+
+    func setDarkMode(_ on: Bool, on device: Device) {
+        update(device) { core in try core.setDarkMode(serial: device.serial, on: on) }
+    }
+
+    func setStayAwake(_ on: Bool, on device: Device) {
+        update(device) { core in try core.setStayAwake(serial: device.serial, on: on) }
+    }
+
+    func reboot(_ device: Device, mode: RebootMode) {
+        run { core in try core.reboot(serial: device.serial, mode: mode) }
+    }
+
+    /// Changes a device setting, then reloads its info to show the result.
+    private func update(_ device: Device, _ action: @escaping @Sendable (Core) throws -> Void) {
+        let core = core
+        Task {
+            do {
+                try await offMain { try action(core) }
+            } catch {
+                alert = error.localizedDescription
+            }
+            await loadInfo(device.serial)
+        }
     }
 
     func goWireless(_ device: Device) {

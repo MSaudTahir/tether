@@ -3,7 +3,7 @@ use std::time::Instant;
 
 fn main() {
     let dir = std::env::args().nth(1).expect("data dir");
-    let core = tether_core::Core::new(dir);
+    let core = tether_core::Core::new(dir.clone());
     let t = Instant::now();
     if core.bundled_scrcpy_version().is_none() {
         let release = core.latest_release().unwrap().expect("no release for this platform");
@@ -16,7 +16,10 @@ fn main() {
     for device in core.devices().unwrap() {
         println!("{device:?}");
         if device.state == "device" {
-            println!("{:?}", core.device_info(device.serial.clone()).unwrap());
+            println!("{:#?}", core.device_info(device.serial.clone()).unwrap());
+            let shot = std::path::Path::new(&dir).join("smoke-screenshot.png");
+            core.screenshot(device.serial.clone(), shot.to_string_lossy().into()).unwrap();
+            println!("screenshot: {} bytes", std::fs::metadata(&shot).unwrap().len());
             for force in [true, false] {
                 let t = Instant::now();
                 let apps = core.apps(device.serial.clone(), force).unwrap();
