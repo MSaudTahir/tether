@@ -34,9 +34,9 @@ A small desktop app for using your Android phone from your computer, built on
 |---|---|---|
 | macOS 26+ | SwiftUI with Liquid Glass | ✅ Works |
 | Linux (GNOME 46+, e.g. Fedora 40+, Ubuntu 24.04+) | GTK4 + libadwaita | ✅ Works (tested on Fedora 44) |
-| Windows 10/11 (x64, ARM64) | WinUI 3 | 🚧 Builds and starts (checked in CI); not tried with a phone yet |
+| Windows 10/11 (x64, ARM64) | WinUI 3 | ✅ Works (tested on Windows 11 ARM) |
 
-[`python/`](python/) has the original cross-platform Qt version, kept until the Windows app works.
+[`python/`](python/) has the original Qt version this grew out of; it's no longer maintained.
 
 ## Requirements
 
@@ -48,8 +48,7 @@ A small desktop app for using your Android phone from your computer, built on
 
 ## Install
 
-Download the latest release from the [Releases](../../releases) page (the first one, 1.0, is
-coming; until then, [build from source](#building-from-source)):
+Download the latest release from the [Releases](../../releases) page:
 
 | Platform | File |
 |---|---|
@@ -178,7 +177,7 @@ One shared core holds all the logic; each platform gets a thin native UI on top 
 | [`helper/`](helper/) | A tiny program that runs on the phone (via `app_process`, nothing installed) to list apps with their icons, use the clipboard, and run notification actions with Buddy's help. The core embeds the built `helper.dex`. |
 | [`buddy/`](buddy/) | Tether Buddy, the optional companion app (a notification listener). The core embeds the built `buddy.apk`. |
 | [`icon/`](icon/) | The app icon and the script that draws it (`swift icon/make_icon.swift icon/icon.png`). |
-| [`python/`](python/) | The original Qt app, until the Windows app works. |
+| [`python/`](python/) | The original Qt app (no longer maintained). |
 
 ### Core
 
