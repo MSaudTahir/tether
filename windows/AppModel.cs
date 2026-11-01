@@ -52,6 +52,7 @@ sealed class AppModel
         if (started) return;
         started = true;
         CheckForUpdate();
+        _ = Task.Run(() => { try { Core.Reconnect(); } catch { } }); // phones last used over Wi-Fi
         for (var tick = 1; ; tick++)
         {
             await RefreshDevices();
@@ -244,6 +245,44 @@ sealed class AppModel
     }
 
     public void SetDarkMode(bool on, Device device) => UpdateDevice(device, () => Core.SetDarkMode(device.serial, on));
+
+    public void SetDoNotDisturb(bool on, Device device) => UpdateDevice(device, () => Core.SetDoNotDisturb(device.serial, on));
+
+    // --- App actions -------------------------------------------------------
+
+    /// Shows the app's page in the phone's Settings, mirrored.
+    public async void ShowAppInfo(DeviceApp app, Device device)
+    {
+        try { await Task.Run(() => Core.ShowAppInfo(device.serial, app.package)); Mirror(device); }
+        catch (Exception e) { Alert?.Invoke(e.Message); }
+    }
+
+    public void ForceStop(DeviceApp app, Device device) => Run(() => Core.ForceStop(device.serial, app.package));
+
+    public void ClearData(DeviceApp app, Device device) => Run(() => Core.ClearAppData(device.serial, app.package));
+
+    public async void Uninstall(DeviceApp app, Device device)
+    {
+        try { await Task.Run(() => Core.UninstallApp(device.serial, app.package)); await LoadApps(device.serial, force: true); }
+        catch (Exception e) { Alert?.Invoke(e.Message); }
+    }
+
+    /// Opens a link on the phone, mirrored.
+    public async void OpenLink(string link, Device device)
+    {
+        try { await Task.Run(() => Core.OpenLink(device.serial, link)); Mirror(device); }
+        catch (Exception e) { Alert?.Invoke(e.Message); }
+    }
+
+    // --- Photos ------------------------------------------------------------
+
+    public readonly Dictionary<string, Photo[]> Photos = [];
+
+    public async void LoadPhotos(Device device)
+    {
+        try { Photos[device.serial] = await Task.Run(() => Core.RecentPhotos(device.serial, 60)); Notify(); }
+        catch (Exception e) { Alert?.Invoke(e.Message); }
+    }
 
     public void SetStayAwake(bool on, Device device) => UpdateDevice(device, () => Core.SetStayAwake(device.serial, on));
 

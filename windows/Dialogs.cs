@@ -80,6 +80,17 @@ static class Dialogs
         mouse.Children.Add(Note("Sends the mouse as a real mouse, for games and apps that capture the pointer (Android 8+). Press Left Alt to release it. App windows turn on the phone's \"Force desktop mode\" developer option so the mouse appears in them."));
         content.Children.Add(mouse);
 
+        var showing = new StackPanel { Spacing = 4 };
+        showing.Children.Add(Heading("Mirroring and App Windows"));
+        var audio = new CheckBox { Content = "Play phone audio on this PC", IsChecked = Model.Config.forwardAudio };
+        audio.Click += (_, _) => Model.Save(Model.Config with { forwardAudio = audio.IsChecked == true });
+        var screenOff = new CheckBox { Content = "Turn the phone's screen off while showing it", IsChecked = Model.Config.screenOff };
+        screenOff.Click += (_, _) => Model.Save(Model.Config with { screenOff = screenOff.IsChecked == true });
+        showing.Children.Add(audio);
+        showing.Children.Add(screenOff);
+        showing.Children.Add(Note("Audio needs Android 11 or newer. With the screen off, the phone stays private on your desk and saves battery; it still runs for Tether."));
+        content.Children.Add(showing);
+
         var scrcpy = new StackPanel { Spacing = 8 };
         scrcpy.Children.Add(Heading("scrcpy"));
         var path = new TextBlock { TextWrapping = TextWrapping.Wrap, IsTextSelectionEnabled = true };

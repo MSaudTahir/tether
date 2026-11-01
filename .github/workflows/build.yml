@@ -85,3 +85,9 @@ jobs:
       - name: Build Tether.exe
         shell: pwsh
         run: windows\build.ps1 -Arch ${{ matrix.arch }}
+      # To try a build on a PC: download it from the run's page.
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tether-windows-${{ matrix.arch }}
+          path: windows/build/Tether-${{ matrix.arch }}
+          retention-days: 14

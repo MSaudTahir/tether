@@ -132,6 +132,7 @@ public sealed partial class MainWindow : Window
         var notifications = model.Notifications.GetValueOrDefault(device.serial) ?? [];
         NotificationsHost.Content = ControlPanel.Notifications(device, notifications);
         FilesHost.Content = FilesView.Build(device);
+        PhotosHost.Content = PhotosView.Build(device);
 
         var supported = (info?.sdk ?? uint.MaxValue) >= TetherCoreMethods.VirtualDisplayMinSdk();
         AppsHint.Text = supported ? "Click an app to open it in its own window." : "App windows need Android 10 or newer.";
@@ -157,7 +158,7 @@ public sealed partial class MainWindow : Window
         AppGrid.ItemsSource = (apps ?? [])
             .Where(app => search == "" || app.name.Contains(search, StringComparison.OrdinalIgnoreCase)
                 || app.package.Contains(search, StringComparison.OrdinalIgnoreCase))
-            .Select(AppTile)
+            .Select(app => { var tile = AppTile(app); tile.ContextFlyout = AppMenu(app); return tile; })
             .ToList();
     }
 
@@ -172,6 +173,38 @@ public sealed partial class MainWindow : Window
         });
         ToolTipService.SetToolTip(tile, app.package);
         return tile;
+    }
+
+    /// Right-click actions for an app.
+    MenuFlyout AppMenu(DeviceApp app)
+    {
+        var menu = new MenuFlyout();
+        void Add(string text, Action<Device> action)
+        {
+            var item = new MenuFlyoutItem { Text = text };
+            item.Click += (_, _) => { if (model.SelectedDevice is { } d) action(d); };
+            menu.Items.Add(item);
+        }
+        Add("Open in Window", d => model.Open(app, d));
+        Add("App Info on Phone", d => model.ShowAppInfo(app, d));
+        menu.Items.Add(new MenuFlyoutSeparator());
+        Add("Force Stop", d => model.ForceStop(app, d));
+        Add("Clear Data…", async d =>
+        {
+            if (await Confirm($"Clear {app.name}'s data?", "Its files, settings and sign-ins are deleted from the phone, like \"Clear storage\" in Settings.", "Clear Data")) model.ClearData(app, d);
+        });
+        if (!app.system)
+            Add("Uninstall…", async d =>
+            {
+                if (await Confirm($"Uninstall {app.name}?", "It's removed from the phone along with its data.", "Uninstall")) model.Uninstall(app, d);
+            });
+        return menu;
+    }
+
+    async System.Threading.Tasks.Task<bool> Confirm(string title, string text, string action)
+    {
+        var dialog = new ContentDialog { XamlRoot = Content.XamlRoot, Title = title, Content = text, PrimaryButtonText = action, CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Close };
+        return await dialog.ShowAsync() == ContentDialogResult.Primary;
     }
 
     /// The app's cached icon, or a letter on a color derived from its name.
@@ -254,6 +287,8 @@ public sealed partial class MainWindow : Window
         AppsPanel.Visibility = section == "apps" ? Visibility.Visible : Visibility.Collapsed;
         NotificationsHost.Visibility = section == "notifications" ? Visibility.Visible : Visibility.Collapsed;
         FilesHost.Visibility = section == "files" ? Visibility.Visible : Visibility.Collapsed;
+        PhotosHost.Visibility = section == "photos" ? Visibility.Visible : Visibility.Collapsed;
+        if (section == "photos" && model.SelectedDevice is { } shown && !model.Photos.ContainsKey(shown.serial)) model.LoadPhotos(shown);
         if (section == "files" && model.SelectedDevice is { } device && !model.Files.ContainsKey(device.serial)) model.LoadFiles(device);
     }
 

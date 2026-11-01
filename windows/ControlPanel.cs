@@ -33,7 +33,13 @@ static class ControlPanel
         row.Children.Add(Key(device, DeviceKey.VolumeUp, "\uE995", "Volume up"));
         row.Children.Add(Key(device, DeviceKey.Power, info.screenOn ? "\uE72E" : "\uE706", info.screenOn ? "Lock screen" : "Wake screen"));
         row.Children.Add(Separator());
-        row.Children.Add(Toggle("\uE708", "Dark Mode", "Switch the phone's dark theme", info.darkMode, on => Model.SetDarkMode(on, device)));
+        var can = TetherCoreMethods.DeviceCapabilities(info.sdk);
+        var dark = Toggle("\uE708", "Dark Mode", can.darkMode ? "Switch the phone's dark theme" : "Needs Android 10 or newer", info.darkMode, on => Model.SetDarkMode(on, device));
+        dark.IsEnabled = can.darkMode;
+        row.Children.Add(dark);
+        var dnd = Toggle("\uE7ED", "Do Not Disturb", can.doNotDisturb ? "Silence the phone's notifications and calls" : "Needs Android 9 or newer", info.doNotDisturb, on => Model.SetDoNotDisturb(on, device));
+        dnd.IsEnabled = can.doNotDisturb;
+        row.Children.Add(dnd);
         row.Children.Add(Toggle("\uE7E8", "Stay Awake", "Keep the screen on while charging", info.stayAwake, on => Model.SetStayAwake(on, device)));
 
         var restart = new DropDownButton { Content = Label("\uE777", "Restart") };
@@ -151,6 +157,14 @@ static class ControlPanel
         row.Children.Add(label);
         row.Children.Add(Button("\uE898", "Send Clipboard to Phone", "Put this PC's clipboard text on the phone's clipboard", () => Model.SendClipboard(device)));
         row.Children.Add(Button("\uE8C8", "Copy Phone Clipboard", "Copy the phone's clipboard text to this PC", () => Model.CopyClipboard(device)));
+        row.Children.Add(Button("\uE774", "Open Link on Phone…", "Open a web link on the phone", async () =>
+        {
+            var box = new TextBox { PlaceholderText = "https://…" };
+            var dialog = new ContentDialog { XamlRoot = row.XamlRoot, Title = "Open Link on Phone", Content = box, PrimaryButtonText = "Open", CloseButtonText = "Cancel", DefaultButton = ContentDialogButton.Primary };
+            if (await dialog.ShowAsync() != ContentDialogResult.Primary) return;
+            var text = box.Text.Trim();
+            if (text != "") Model.OpenLink(text.Contains("://") ? text : $"https://{text}", device);
+        }));
         if (Model.ClipboardStatus.TryGetValue(device.serial, out var status))
             row.Children.Add(new TextBlock { Text = status, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7, TextWrapping = TextWrapping.Wrap, MaxWidth = 420 });
         return Card(row);
