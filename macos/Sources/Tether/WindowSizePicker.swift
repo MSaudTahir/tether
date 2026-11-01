@@ -76,11 +76,11 @@ private struct WindowSizeForm: View {
                 config.resizableWindows = on
                 model.save(config)
             }))
-            .help("Resizing an app's window resizes the app, which relayouts to fit. The size above is where it starts.")
+            .help("Resizing an app's window resizes the app, which relayouts to fit. The size above is where it starts. Resizable windows aren't as sharp on Retina screens.")
 
             Section {
                 HStack {
-                    TextField("Custom", text: $custom, prompt: Text("1600x1000/240"))
+                    TextField("Custom", text: $custom, prompt: Text("1440x900/160"))
                         .labelsHidden()
                         .onSubmit(setCustom)
                     Button("Set", action: setCustom)
@@ -89,7 +89,7 @@ private struct WindowSizeForm: View {
                 Text("Custom")
             } footer: {
                 Text(customError
-                    ? "Use WIDTHxHEIGHT/DPI, e.g. 1600x1000/240."
+                    ? "Use WIDTHxHEIGHT/DPI in points, e.g. 1440x900/160."
                     : "Portrait suits most phone apps. Smaller text fits more on screen.")
                     .foregroundStyle(customError ? AnyShapeStyle(.red) : AnyShapeStyle(.secondary))
             }

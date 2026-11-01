@@ -142,7 +142,7 @@ pub struct Config {
     pub adb: String,
     /// "" for the bundled build, or a path.
     pub scrcpy: String,
-    /// Virtual display size for app windows: "WIDTHxHEIGHT/DPI", or "" for the device's size.
+    /// App window size in points and density per point: "WIDTHxHEIGHT/DPI", or "" for the phone's size.
     pub window_size: String,
     /// Resizing an app window resizes its display, so the app relayouts (window_size is the starting size).
     pub resizable_windows: bool,
@@ -159,7 +159,7 @@ impl Default for Config {
         Config {
             adb: "auto".into(),
             scrcpy: String::new(),
-            window_size: "1920x1080/280".into(),
+            window_size: "1280x720/160".into(),
             resizable_windows: true,
             capture_mouse: false,
             setup_done: false,
@@ -320,29 +320,33 @@ impl Core {
         self.start_scrcpy(vec!["-s".into(), serial, format!("--window-title={title}")])
     }
 
-    /// Opens an app in its own window, on a new virtual display sized by the window_size config.
-    /// `scale` is the screen's pixels per point (2 on Retina): scrcpy sizes the window in points, so the
-    /// display gets that many more pixels (and dpi) to look sharp at the same size.
-    pub fn open_app(&self, serial: String, package: String, title: String, scale: f32) -> Result<Arc<Session>> {
+    /// Opens an app in its own window, on a new virtual display sized by the window_size config and
+    /// fitted to `screen` (the usable screen area the window opens on).
+    pub fn open_app(&self, serial: String, package: String, title: String, screen: Screen) -> Result<Arc<Session>> {
         let config = self.config();
         let Some(size) = parse_window_size(config.window_size.clone()) else {
-            return Err(CoreError::Failed("Window size must look like 1920x1080/280.".into()));
+            return Err(CoreError::Failed("Window size must look like 1280x720/160.".into()));
         };
+        let adb = self.adb()?;
         if config.capture_mouse {
-            self.adb()?.mouse_follows_virtual_displays(&serial)?;
+            adb.mouse_follows_virtual_displays(&serial)?;
         }
-        let size = scaled_window_size(size, scale);
+        let phone = if size.width == 0 { adb.display_size(&serial) } else { None };
         let mut args = vec!["-s".into(), serial, format!("--start-app={package}"), format!("--window-title={title}")];
-        args.push(match format_window_size(size) {
-            text if text.is_empty() => "--new-display".into(),
-            text => format!("--new-display={text}"),
-        });
-        if size.width > 1920 || size.height > 1920 {
-            // H.264 encoders often stop at 1080p; H.265 handles 4K and needs less bandwidth for it.
-            args.extend(["--video-codec=h265".into(), "--video-bit-rate=20M".into()]);
-        }
-        if config.resizable_windows {
+        let display = if config.resizable_windows {
+            // scrcpy opens a flex display's window at its size in pixels, taken as points, and doesn't
+            // allow setting the window size. So the display is in points: no cropping, but not Retina-sharp.
             args.push("--flex-display".into());
+            app_window(size, phone, Screen { scale: 1.0, ..screen }).display
+        } else {
+            let window = app_window(size, phone, screen);
+            args.extend([format!("--window-width={}", window.width), format!("--window-height={}", window.height)]);
+            window.display
+        };
+        args.push(format!("--new-display={}", format_window_size(display)));
+        if display.width > 1920 || display.height > 1920 {
+            // H.264 encoders often stop at 1080p; H.265 handles more and needs less bandwidth for it.
+            args.extend(["--video-codec=h265".into(), "--video-bit-rate=20M".into()]);
         }
         self.start_scrcpy(args)
     }

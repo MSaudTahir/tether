@@ -5,7 +5,7 @@ use std::thread;
 use std::time::Duration;
 
 use crate::util::{command, output, text};
-use crate::{CoreError, Device, DeviceInfo, DeviceKey, RebootMode, Result};
+use crate::{CoreError, Device, DeviceInfo, DeviceKey, RebootMode, Result, WindowSize};
 
 const TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -119,6 +119,11 @@ impl Adb {
         }
         self.run(Some(serial), &args, TIMEOUT)?;
         Ok(())
+    }
+
+    /// The screen's size in pixels and its density (the overridden ones if set), if adb says.
+    pub fn display_size(&self, serial: &str) -> Option<WindowSize> {
+        parse_display_size(&self.text(Some(serial), &["shell", "wm size; wm density"]).ok()?)
     }
 
     /// Android sends a hardware mouse to the main display unless "Force desktop mode" (developer
@@ -251,6 +256,13 @@ pub fn parse_info(out: &str) -> DeviceInfo {
     }
 }
 
+/// "Physical size: 1080x2400" / "Physical density: 440", each maybe followed by an "Override" line.
+pub fn parse_display_size(out: &str) -> Option<WindowSize> {
+    let last = |key: &str| out.lines().rev().find_map(|l| l.trim().split_once(": ").filter(|(k, _)| k.ends_with(key)).map(|(_, v)| v));
+    let (width, height) = last("size")?.split_once('x')?;
+    Some(WindowSize { width: width.parse().ok()?, height: height.parse().ok()?, dpi: last("density")?.parse().ok()? })
+}
+
 fn wifi_ip(route: &str) -> Option<String> {
     let src = |line: &str| {
         let mut words = line.split_whitespace();
@@ -302,6 +314,13 @@ mod tests {
 
         let empty = parse_info("");
         assert_eq!((empty.memory_total, empty.storage_total, empty.wifi_address), (0, 0, None));
+    }
+
+    #[test]
+    fn display_size() {
+        let out = "Physical size: 1080x2400\nPhysical density: 440\nOverride density: 400\n";
+        assert_eq!(parse_display_size(out), Some(WindowSize { width: 1080, height: 2400, dpi: 400 }));
+        assert_eq!(parse_display_size("error"), None);
     }
 
     #[test]

@@ -112,8 +112,12 @@ final class AppModel {
 
     func open(_ app: DeviceApp, on device: Device) {
         let title = "\(app.name) · \(info[device.serial]?.name ?? device.label)"
-        let scale = Float(NSScreen.main?.backingScaleFactor ?? 1)
-        launch { core in try core.openApp(serial: device.serial, package: app.package, title: title, scale: scale) }
+        let main = NSScreen.main
+        let screen = Screen(
+            width: UInt32(main?.visibleFrame.width ?? 1280), height: UInt32(main?.visibleFrame.height ?? 800),
+            scale: Float(main?.backingScaleFactor ?? 1)
+        )
+        launch { core in try core.openApp(serial: device.serial, package: app.package, title: title, screen: screen) }
     }
 
     /// Saves a screenshot to the Desktop and shows it in Finder.
