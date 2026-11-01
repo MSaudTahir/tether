@@ -144,9 +144,12 @@ pub struct Config {
     pub scrcpy: String,
     /// Virtual display size for app windows: "WIDTHxHEIGHT/DPI", or "" for the device's size.
     pub window_size: String,
+    /// Resizing an app window resizes its display, so the app relayouts (window_size is the starting size).
+    pub resizable_windows: bool,
     /// Send the mouse as a real (UHID) mouse, captured in relative mode: for games and apps that use
     /// pointer capture (Android 8+). Left Alt or Cmd gives the mouse back to the computer.
     /// App windows turn on the device's "Force desktop mode" so the mouse lands on their display.
+    /// Off at every launch.
     pub capture_mouse: bool,
     pub setup_done: bool,
 }
@@ -157,6 +160,7 @@ impl Default for Config {
             adb: "auto".into(),
             scrcpy: String::new(),
             window_size: "1920x1080/280".into(),
+            resizable_windows: true,
             capture_mouse: false,
             setup_done: false,
         }
@@ -180,10 +184,12 @@ impl Core {
     #[uniffi::constructor]
     pub fn new(data_dir: String) -> Arc<Self> {
         let data_dir = PathBuf::from(data_dir);
-        let config = fs::read(data_dir.join("config.json"))
+        let mut config: Config = fs::read(data_dir.join("config.json"))
             .ok()
             .and_then(|json| serde_json::from_slice(&json).ok())
             .unwrap_or_default();
+        // A per-session switch (it changes how the mouse behaves), so every launch starts with it off.
+        config.capture_mouse = false;
         Arc::new(Core {
             tools: Toolchain { root: data_dir.join("scrcpy") },
             data_dir,
@@ -324,7 +330,11 @@ impl Core {
             self.adb()?.mouse_follows_virtual_displays(&serial)?;
         }
         let display = if size.is_empty() { "--new-display".into() } else { format!("--new-display={size}") };
-        self.start_scrcpy(vec!["-s".into(), serial, display, format!("--start-app={package}"), format!("--window-title={title}")])
+        let mut args = vec!["-s".into(), serial, display, format!("--start-app={package}"), format!("--window-title={title}")];
+        if self.config().resizable_windows {
+            args.push("--flex-display".into());
+        }
+        self.start_scrcpy(args)
     }
 
     /// Closes all scrcpy windows (call this when the app quits).

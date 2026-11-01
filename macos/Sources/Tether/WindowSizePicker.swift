@@ -71,6 +71,13 @@ private struct WindowSizeForm: View {
             .pickerStyle(.segmented)
             .disabled(choice.preset == nil || sameAsPhone)
 
+            Toggle("Resizable", isOn: Binding(get: { model.config.resizableWindows }, set: { on in
+                var config = model.config
+                config.resizableWindows = on
+                model.save(config)
+            }))
+            .help("Resizing an app's window resizes the app, which relayouts to fit. The size above is where it starts.")
+
             Section {
                 HStack {
                     TextField("Custom", text: $custom, prompt: Text("1600x1000/240"))
