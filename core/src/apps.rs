@@ -60,11 +60,16 @@ fn cache_folder(data_dir: &Path, serial: &str) -> PathBuf {
 }
 
 fn fetch_with_icons(adb: &Adb, data_dir: &Path, serial: &str, icon_dir: &Path) -> Result<Vec<DeviceApp>> {
+    run_helper(adb, data_dir, serial, &[], icon_dir)
+}
+
+/// Runs the helper with `args`, saving icons to `icon_dir`.
+fn run_helper(adb: &Adb, data_dir: &Path, serial: &str, args: &[&str], icon_dir: &Path) -> Result<Vec<DeviceApp>> {
     let local = data_dir.join("helper.dex");
     fs::write(&local, HELPER)?;
     adb.run(Some(serial), &["push", &local.to_string_lossy(), DEVICE_HELPER], Duration::from_secs(30))?;
-    let command = format!("CLASSPATH={DEVICE_HELPER} app_process / tether.Helper");
-    let out = text(&adb.run(Some(serial), &["exec-out", &command], Duration::from_secs(120))?);
+    let command = format!("CLASSPATH={DEVICE_HELPER} app_process / tether.Helper {}", args.join(" "));
+    let out = text(&adb.run(Some(serial), &["exec-out", command.trim()], Duration::from_secs(120))?);
 
     fs::create_dir_all(icon_dir)?;
     let mut apps = Vec::new();
@@ -83,6 +88,35 @@ fn fetch_with_icons(adb: &Adb, data_dir: &Path, serial: &str, icon_dir: &Path) -
         apps.push(DeviceApp { name: name.into(), package: package.into(), system: system == "1", icon_path });
     }
     Ok(apps)
+}
+
+/// Names and icons for packages that aren't launchable apps (e.g. "android", which posts system
+/// notifications). Fetched once per package and kept next to the app cache; a package the phone
+/// doesn't know is remembered too, with an empty name, so it isn't asked for again.
+pub fn other_packages(adb: &Adb, data_dir: &Path, serial: &str, packages: &[String]) -> Vec<DeviceApp> {
+    let folder = cache_folder(data_dir, serial);
+    let index = folder.join("other.json");
+    let mut known: Vec<DeviceApp> = fs::read(&index).ok().and_then(|json| serde_json::from_slice(&json).ok()).unwrap_or_default();
+    let missing: Vec<&str> = packages
+        .iter()
+        .filter(|p| !known.iter().any(|k| &k.package == *p) && p.chars().all(|c| c.is_alphanumeric() || c == '.' || c == '_'))
+        .map(String::as_str)
+        .collect();
+    if !missing.is_empty() {
+        let args: Vec<&str> = ["packages"].into_iter().chain(missing.iter().copied()).collect();
+        if let Ok(found) = run_helper(adb, data_dir, serial, &args, &folder.join("icons")) {
+            for package in &missing {
+                let app = found.iter().find(|a| a.package == *package).cloned();
+                known.push(app.unwrap_or(DeviceApp { name: String::new(), package: package.to_string(), system: true, icon_path: None }));
+            }
+            let _ = fs::create_dir_all(&folder).and_then(|_| fs::write(&index, serde_json::to_vec(&known).unwrap_or_default()));
+        }
+    }
+    for app in &mut known {
+        let path = folder.join("icons").join(format!("{}.png", app.package));
+        app.icon_path = path.exists().then(|| path.to_string_lossy().into_owned());
+    }
+    known
 }
 
 fn list_with_scrcpy(scrcpy: &Path, adb_path: &str, serial: &str) -> Result<Vec<DeviceApp>> {

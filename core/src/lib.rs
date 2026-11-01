@@ -289,23 +289,19 @@ impl Core {
 
     /// The phone's current notifications, newest first (ongoing ones, like music players, are left out).
     pub fn notifications(&self, serial: String) -> Result<Vec<PhoneNotification>> {
-        let out = self.adb()?.text(Some(&serial), &["shell", "dumpsys notification --noredact"])?;
-        let apps = apps::cached(&self.data_dir, &serial).unwrap_or_default();
+        let adb = self.adb()?;
+        let out = adb.text(Some(&serial), &["shell", "dumpsys notification --noredact"])?;
         let mut list = notifications::parse(&out);
+        let mut apps = apps::cached(&self.data_dir, &serial).unwrap_or_default();
+        // Senders that aren't launchable apps (Android System, System UI, ...) are looked up once.
+        let others: Vec<String> = list.iter().map(|n| n.package.clone()).filter(|p| !apps.iter().any(|a| &a.package == p)).collect();
+        if !others.is_empty() {
+            apps.extend(apps::other_packages(&adb, &self.data_dir, &serial, &others));
+        }
         for notification in &mut list {
             if let Some(app) = apps.iter().find(|a| a.package == notification.package) {
                 notification.app_name = app.name.clone();
                 notification.icon_path = app.icon_path.clone();
-            } else {
-                // System senders aren't launchable apps, so they're not in the app list.
-                notification.app_name = match notification.package.as_str() {
-                    "android" => "Android System",
-                    "com.android.systemui" => "System UI",
-                    "com.android.vending" => "Google Play Store",
-                    "com.google.android.gms" => "Google Play services",
-                    _ => "",
-                }
-                .into();
             }
         }
         Ok(list)
