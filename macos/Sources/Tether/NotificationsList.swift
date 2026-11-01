@@ -35,9 +35,11 @@ private struct NotificationRow: View {
                     HStack {
                         Text(appName).font(.caption).foregroundStyle(.secondary)
                         Spacer()
-                        Text(Date(timeIntervalSince1970: Double(notification.time) / 1000), format: .relative(presentation: .named))
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                        if notification.time > 0 {
+                            Text(Date(timeIntervalSince1970: Double(notification.time) / 1000), format: .relative(presentation: .named))
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                     if !notification.title.isEmpty {
                         Text(notification.title).font(.headline).lineLimit(1)

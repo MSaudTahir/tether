@@ -20,7 +20,6 @@ public sealed partial class MainWindow : Window
     readonly AppModel model = AppModel.Shared;
     /// What the app grid currently shows, so it's only rebuilt when that changes.
     (DeviceApp[]? apps, string search) shownApps;
-    bool updatingDevices;
 
     public MainWindow()
     {
@@ -55,7 +54,7 @@ public sealed partial class MainWindow : Window
 
         RenderDevices();
         var device = model.SelectedDevice;
-        RefreshButton.IsEnabled = device?.state == "device";
+        RefreshButton.IsEnabled = ToolbarMirror.IsEnabled = device?.state == "device";
         if (device == null)
         {
             ShowEmpty("\uE8EA", "No Devices", "Plug in a phone with USB debugging on, or pair one over Wi-Fi.", pair: true);
@@ -82,27 +81,34 @@ public sealed partial class MainWindow : Window
         EmptyPair.Visibility = pair ? Visibility.Visible : Visibility.Collapsed;
     }
 
+    /// The sidebar's phone picker: the selected phone, and a menu to switch or pair one.
     void RenderDevices()
     {
-        updatingDevices = true;
-        var items = model.Devices.Select(device => new ListViewItem { Content = DeviceRow(device), Tag = device.serial }).ToList();
-        DeviceList.ItemsSource = items;
-        DeviceList.SelectedItem = items.FirstOrDefault(item => (string)item.Tag == model.Selection);
-        updatingDevices = false;
+        var device = model.SelectedDevice;
+        PickerTitle.Text = device != null ? model.Name(device) : "No Phone";
+        PickerSubtitle.Text = device != null ? Subtitle(device) : "Connect or pair a phone";
+        var menu = new MenuFlyout();
+        foreach (var d in model.Devices)
+        {
+            var item = new ToggleMenuFlyoutItem { Text = model.Name(d), IsChecked = d.serial == model.Selection };
+            item.Click += (_, _) => model.Select(d.serial);
+            menu.Items.Add(item);
+        }
+        if (model.Devices.Length > 0) menu.Items.Add(new MenuFlyoutSeparator());
+        var pair = new MenuFlyoutItem { Text = "Pair over Wi-Fi…", Icon = new FontIcon { Glyph = "\uE701" } };
+        pair.Click += (_, _) => _ = Dialogs.ShowPair(Content.XamlRoot);
+        menu.Items.Add(pair);
+        DevicePicker.Flyout = menu;
+        SectionList.Visibility = device?.state == "device" ? Visibility.Visible : Visibility.Collapsed;
+        var count = model.Selection is { } serial ? model.Notifications.GetValueOrDefault(serial)?.Length ?? 0 : 0;
+        NotificationCount.Text = count > 0 ? count.ToString() : "";
     }
 
-    UIElement DeviceRow(Device device)
+    string Subtitle(Device device)
     {
         var transport = device.wireless ? "Wi-Fi" : "USB";
-        var subtitle = device.state != "device" ? $"{transport} · {device.state}"
-            : model.Info.TryGetValue(device.serial, out var info) ? $"{transport} · {info.battery}%" : transport;
-        var text = new StackPanel { Spacing = 2 };
-        text.Children.Add(new TextBlock { Text = model.Name(device) });
-        text.Children.Add(new TextBlock { Text = subtitle, Style = Style("CaptionTextBlockStyle"), Foreground = Brush("TextFillColorSecondaryBrush") });
-        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12, Padding = new Thickness(0, 6, 0, 6) };
-        row.Children.Add(new FontIcon { Glyph = "\uE8EA", FontSize = 18 });
-        row.Children.Add(text);
-        return row;
+        if (device.state != "device") return $"{transport} · {device.state}";
+        return model.Info.TryGetValue(device.serial, out var info) ? $"{transport} · {info.battery}%" : transport;
     }
 
     void RenderDevice(Device device)
@@ -122,7 +128,6 @@ public sealed partial class MainWindow : Window
         DetailsHost.Content = info != null ? ControlPanel.Details(info) : null;
         var notifications = model.Notifications.GetValueOrDefault(device.serial) ?? [];
         NotificationsHost.Content = ControlPanel.Notifications(device, notifications);
-        NotificationsTab.Text = notifications.Length > 0 ? $"Notifications ({notifications.Length})" : "Notifications";
 
         var supported = (info?.sdk ?? uint.MaxValue) >= TetherCoreMethods.VirtualDisplayMinSdk();
         AppsHint.Text = supported ? "Click an app to open it in its own window." : "App windows need Android 10 or newer.";
@@ -213,11 +218,6 @@ public sealed partial class MainWindow : Window
 
     // --- Events --------------------------------------------------------------
 
-    void DeviceList_SelectionChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (!updatingDevices && DeviceList.SelectedItem is ListViewItem item) model.Select((string)item.Tag);
-    }
-
     void AppGrid_ItemClick(object sender, ItemClickEventArgs e)
     {
         if (e.ClickedItem is FrameworkElement { Tag: DeviceApp app } && model.SelectedDevice is { } device) model.Open(app, device);
@@ -241,12 +241,13 @@ public sealed partial class MainWindow : Window
         if (apks.Count > 0) model.Install(apks, device);
     }
 
-    /// Shows the selected section.
-    void Tabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    /// Shows the section selected in the sidebar.
+    void SectionList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        AppsPanel.Visibility = Tabs.SelectedItem == AppsTab ? Visibility.Visible : Visibility.Collapsed;
-        NotificationsHost.Visibility = Tabs.SelectedItem == NotificationsTab ? Visibility.Visible : Visibility.Collapsed;
-        DetailsHost.Visibility = Tabs.SelectedItem == PhoneTab ? Visibility.Visible : Visibility.Collapsed;
+        var section = (SectionList.SelectedItem as ListViewItem)?.Tag as string ?? "overview";
+        OverviewPanel.Visibility = section == "overview" ? Visibility.Visible : Visibility.Collapsed;
+        AppsPanel.Visibility = section == "apps" ? Visibility.Visible : Visibility.Collapsed;
+        NotificationsHost.Visibility = section == "notifications" ? Visibility.Visible : Visibility.Collapsed;
     }
 
     void Search_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) => Render();

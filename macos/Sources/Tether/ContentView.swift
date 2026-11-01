@@ -4,7 +4,7 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var search = ""
     @State private var showPair = false
-    @State private var section: DeviceTab? = .apps
+    @State private var section: DeviceTab? = .overview
 
     var body: some View {
         NavigationSplitView {
@@ -26,7 +26,7 @@ struct ContentView: View {
             .navigationSplitViewColumnWidth(min: 210, ideal: 240)
         } detail: {
             if let device = model.selectedDevice {
-                DeviceView(device: device, search: search, tab: section ?? .apps)
+                DeviceView(device: device, search: search, tab: section ?? .overview)
                     .task(id: device.serial + device.state) { await model.load(device.serial) }
             } else {
                 ContentUnavailableView {
@@ -54,6 +54,14 @@ struct ContentView: View {
                     .help("Update scrcpy to \(update.version)")
                     .disabled(model.installingUpdate)
                 }
+            }
+            ToolbarItem {
+                Button("Mirror Screen", systemImage: "rectangle.on.rectangle") {
+                    if let device = model.selectedDevice { model.mirror(device) }
+                }
+                .help("Mirror the phone's screen (⇧⌘M)")
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+                .disabled(model.selectedDevice?.state != "device")
             }
             ToolbarItem {
                 Button("Pair over Wi-Fi", systemImage: "wifi") { showPair = true }

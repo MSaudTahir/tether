@@ -62,9 +62,9 @@ fn build(app: &adw::Application) {
     sections.add_css_class("navigation-sidebar");
     let notification_count = gtk::Label::builder().css_classes(["dim-label", "caption"]).build();
     for (name, title, icon) in [
+        ("overview", "Overview", "phone-symbolic"),
         ("apps", "Apps", "view-app-grid-symbolic"),
         ("notifications", "Notifications", "preferences-system-notifications-symbolic"),
-        ("phone", "Phone", "help-about-symbolic"),
     ] {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         row.set_margin_top(6);
@@ -95,6 +95,8 @@ fn build(app: &adw::Application) {
     menu.append(Some("Settings"), Some("app.settings"));
     menu.append(Some("About Tether"), Some("app.about"));
     let menu_button = gtk::MenuButton::builder().icon_name("open-menu-symbolic").menu_model(&menu).primary(true).build();
+    let mirror = gtk::Button::builder().icon_name("view-mirror-symbolic").tooltip_text("Mirror the phone's screen (Ctrl+Shift+M)").action_name("app.mirror").build();
+    header.pack_start(&mirror);
     header.pack_start(&pair);
     header.pack_start(&refresh);
     header.pack_end(&menu_button);
@@ -234,7 +236,9 @@ fn build(app: &adw::Application) {
             }
             update.set_visible(model.update.borrow().is_some());
             update.set_sensitive(!model.installing_update.get());
-            refresh.set_sensitive(model.selected_device().is_some_and(|d| d.state == "device"));
+            let ready = model.selected_device().is_some_and(|d| d.state == "device");
+            refresh.set_sensitive(ready);
+            mirror.set_sensitive(ready);
             model.screen.set(screen_of(&window));
 
             let rows: Vec<(String, String)> = model
@@ -263,7 +267,6 @@ fn build(app: &adw::Application) {
                     picker_subtitle.set_label("Connect or pair a phone");
                 }
             }
-            let ready = model.selected_device().is_some_and(|d| d.state == "device");
             sections.set_visible(ready);
             let count = model.selection.borrow().as_ref().and_then(|s| model.notifications.borrow().get(s).map(Vec::len)).unwrap_or(0);
             notification_count.set_label(&if count > 0 { count.to_string() } else { String::new() });

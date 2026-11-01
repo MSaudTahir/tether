@@ -85,9 +85,9 @@ static class ControlPanel
         foreach (var notification in all)
         {
             var appName = notification.appName == "" ? notification.package : notification.appName;
-            var when = DateTimeOffset.FromUnixTimeMilliseconds((long)notification.time).ToLocalTime().ToString("t");
+            var when = notification.time > 0 ? " · " + DateTimeOffset.FromUnixTimeMilliseconds((long)notification.time).ToLocalTime().ToString("t") : "";
             var text = new StackPanel { Spacing = 2 };
-            text.Children.Add(Dialogs.Note($"{appName} · {when}"));
+            text.Children.Add(Dialogs.Note($"{appName}{when}"));
             if (notification.title != "") text.Children.Add(new TextBlock { Text = notification.title, Style = Dialogs.Resource<Style>("BodyStrongTextBlockStyle"), TextTrimming = TextTrimming.CharacterEllipsis });
             if (notification.text != "") text.Children.Add(new TextBlock { Text = notification.text, TextWrapping = TextWrapping.Wrap, MaxLines = 3, TextTrimming = TextTrimming.CharacterEllipsis, Opacity = 0.75 });
             var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };

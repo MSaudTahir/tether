@@ -7,15 +7,15 @@ private let stateHints = [
 
 /// The device page's sections, below the header and controls.
 enum DeviceTab: String, CaseIterable {
+    case overview = "Overview"
     case apps = "Apps"
     case notifications = "Notifications"
-    case phone = "Phone"
 
     var systemImage: String {
         switch self {
+        case .overview: "smartphone"
         case .apps: "square.grid.2x2"
         case .notifications: "bell"
-        case .phone: "info.circle"
         }
     }
 }
@@ -34,34 +34,22 @@ struct DeviceView: View {
                 description: Text(stateHints[device.state] ?? "The device is \(device.state).")
             )
         } else {
-            // The phone's header and controls stay put; the section below scrolls.
-            VStack(spacing: 0) {
+            ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
-                    DeviceHeader(device: device, info: model.info[device.serial])
-                    if let info = model.info[device.serial] {
-                        ControlsCard(device: device, info: info)
-                    }
-                }
-                .padding([.horizontal, .top], 28)
-                .padding(.bottom, 12)
-                ScrollView {
-                    Group {
-                        switch tab {
-                        case .apps:
-                            AppsSection(device: device, search: search)
-                        case .notifications:
-                            NotificationsList(device: device)
-                        case .phone:
-                            if let info = model.info[device.serial] {
-                                DetailsCard(info: info)
-                            } else {
-                                ProgressView().frame(maxWidth: .infinity, minHeight: 120)
-                            }
+                    switch tab {
+                    case .overview:
+                        DeviceHeader(device: device, info: model.info[device.serial])
+                        if let info = model.info[device.serial] {
+                            ControlsCard(device: device, info: info)
+                            DetailsCard(info: info)
                         }
+                    case .apps:
+                        AppsSection(device: device, search: search)
+                    case .notifications:
+                        NotificationsList(device: device)
                     }
-                    .padding([.horizontal, .bottom], 28)
-                    .padding(.top, 12)
                 }
+                .padding(28)
             }
             .dropDestination(for: URL.self) { urls, _ in
                 let apks = urls.filter { $0.pathExtension.lowercased() == "apk" }
@@ -98,7 +86,6 @@ struct DeviceHeader: View {
             HStack(spacing: 10) {
                 Button("Mirror Screen", systemImage: "rectangle.on.rectangle") { model.mirror(device) }
                     .buttonStyle(.glassProminent)
-                    .keyboardShortcut("m", modifiers: [.command, .shift])
                 if !device.wireless {
                     Button("Go Wireless", systemImage: "wifi") { model.goWireless(device) }
                         .buttonStyle(.glass)

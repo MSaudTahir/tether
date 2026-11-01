@@ -105,7 +105,7 @@ pub struct PhoneNotification {
     pub icon_path: Option<String>,
     pub title: String,
     pub text: String,
-    /// Milliseconds since 1970.
+    /// Milliseconds since 1970, or 0 if the notification doesn't say.
     pub time: u64,
 }
 
@@ -296,6 +296,16 @@ impl Core {
             if let Some(app) = apps.iter().find(|a| a.package == notification.package) {
                 notification.app_name = app.name.clone();
                 notification.icon_path = app.icon_path.clone();
+            } else {
+                // System senders aren't launchable apps, so they're not in the app list.
+                notification.app_name = match notification.package.as_str() {
+                    "android" => "Android System",
+                    "com.android.systemui" => "System UI",
+                    "com.android.vending" => "Google Play Store",
+                    "com.google.android.gms" => "Google Play services",
+                    _ => "",
+                }
+                .into();
             }
         }
         Ok(list)

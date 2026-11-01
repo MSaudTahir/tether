@@ -68,27 +68,20 @@ impl DevicePage {
         apps.append(&apps_state);
         let notifications_box = gtk::Box::new(gtk::Orientation::Vertical, 10);
         let details_box = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        // Overview: the phone's header, controls and details.
+        let overview = gtk::Box::builder().orientation(gtk::Orientation::Vertical).spacing(16).valign(gtk::Align::Start).build();
+        overview.append(&top);
+        overview.append(&details_box);
         let tabs = adw::ViewStack::builder().vhomogeneous(false).build();
-        tabs.add_titled_with_icon(&apps, Some("apps"), "Apps", "view-app-grid-symbolic");
-        tabs.add_titled_with_icon(&notifications_box, Some("notifications"), "Notifications", "preferences-system-notifications-symbolic");
-        tabs.add_titled_with_icon(&details_box, Some("phone"), "Phone", "help-about-symbolic");
-        // The phone's header and controls stay put; the section below scrolls.
-        let clamped = |child: &gtk::Widget, top: i32, bottom: i32| {
-            let clamp = adw::Clamp::builder().maximum_size(1400).tightening_threshold(1000).child(child).build();
-            clamp.set_margin_top(top);
-            clamp.set_margin_bottom(bottom);
-            clamp.set_margin_start(24);
-            clamp.set_margin_end(24);
-            clamp
-        };
-        let scroll = gtk::ScrolledWindow::builder()
-            .child(&clamped(tabs.upcast_ref(), 12, 24))
-            .hscrollbar_policy(gtk::PolicyType::Never)
-            .vexpand(true)
-            .build();
-        let device_view = gtk::Box::new(gtk::Orientation::Vertical, 0);
-        device_view.append(&clamped(top.upcast_ref(), 24, 12));
-        device_view.append(&scroll);
+        tabs.add_named(&overview, Some("overview"));
+        tabs.add_named(&apps, Some("apps"));
+        tabs.add_named(&notifications_box, Some("notifications"));
+        let clamp = adw::Clamp::builder().maximum_size(1400).tightening_threshold(1000).child(&tabs).build();
+        clamp.set_margin_top(24);
+        clamp.set_margin_bottom(24);
+        clamp.set_margin_start(24);
+        clamp.set_margin_end(24);
+        let device_view = gtk::ScrolledWindow::builder().child(&clamp).hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).build();
 
         let stack = gtk::Stack::new();
         stack.add_named(&empty, Some("empty"));
@@ -123,7 +116,7 @@ impl DevicePage {
         page
     }
 
-    /// Shows a section: "apps", "notifications" or "phone".
+    /// Shows a section: "overview", "apps" or "notifications".
     pub fn show_section(&self, name: &str) {
         self.tabs.set_visible_child_name(name);
     }
@@ -352,7 +345,8 @@ impl DevicePage {
             let app_name = if notification.app_name.is_empty() { notification.package.clone() } else { notification.app_name.clone() };
             let when = glib::DateTime::from_unix_local((notification.time / 1000) as i64)
                 .ok()
-                .and_then(|t| t.format("%H:%M").ok())
+                .filter(|_| notification.time > 0)
+                .and_then(|t| t.format(" · %H:%M").ok())
                 .map(|t| t.to_string())
                 .unwrap_or_default();
             let row = adw::ActionRow::builder()
@@ -364,7 +358,7 @@ impl DevicePage {
                 .build();
             let icon = app_tile_icon(&DeviceApp { name: app_name.clone(), package: notification.package.clone(), system: false, icon_path: notification.icon_path.clone() }, 32);
             row.add_prefix(&icon);
-            let meta = gtk::Label::builder().label(format!("{app_name} · {when}")).css_classes(["caption", "dim-label"]).valign(gtk::Align::Start).build();
+            let meta = gtk::Label::builder().label(format!("{app_name}{when}")).css_classes(["caption", "dim-label"]).valign(gtk::Align::Start).build();
             row.add_suffix(&meta);
             let (model, device) = (self.model.clone(), device.clone());
             row.connect_activated(move |_| model.open_notification(&notification, &device));
@@ -468,7 +462,8 @@ fn details(info: &DeviceInfo) -> gtk::Widget {
 }
 
 fn add_row(grid: &gtk::Grid, icon: &str, title: &str, value: &str) {
-    let value = gtk::Label::builder().label(value).xalign(0.0).selectable(true).wrap(true).build();
+    // Not wrapped: a wrapping label reserves the height it would need at its narrowest.
+    let value = gtk::Label::builder().label(value).xalign(0.0).selectable(true).build();
     add(grid, icon, title, &value);
 }
 
