@@ -52,7 +52,8 @@
             </StackPanel>
         </Grid>
 
-        <local:SetupView x:Name="Setup" Grid.Row="1" Visibility="Collapsed" />
+        <!-- The setup wizard (SetupView) goes here from code. -->
+        <ContentControl x:Name="SetupHost" Grid.Row="1" HorizontalContentAlignment="Stretch" VerticalContentAlignment="Stretch" />
 
         <Grid x:Name="Main" Grid.Row="1">
             <Grid.ColumnDefinitions>

@@ -18,12 +18,14 @@ public sealed partial class MainWindow : Window
     };
 
     readonly AppModel model = AppModel.Shared;
+    readonly SetupView Setup = new() { Visibility = Visibility.Collapsed };
     /// What the app grid currently shows, so it's only rebuilt when that changes.
     (DeviceApp[]? apps, string search) shownApps;
 
     public MainWindow()
     {
         InitializeComponent();
+        SetupHost.Content = Setup;
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBar);
         AppWindow.SetIcon("Tether.ico");
