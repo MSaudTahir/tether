@@ -25,5 +25,12 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp ".build/$CONFIG/MyDevice" "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/"
+ICONSET=build/AppIcon.iconset
+mkdir -p "$ICONSET" "$APP/Contents/Resources"
+for px in 16 32 128 256 512; do
+  sips -z $px $px ../icon/icon.png --out "$ICONSET/icon_${px}x${px}.png" >/dev/null
+  sips -z $((px * 2)) $((px * 2)) ../icon/icon.png --out "$ICONSET/icon_${px}x${px}@2x.png" >/dev/null
+done
+iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/AppIcon.icns"
 codesign --force --sign - "$APP"
 echo "Built $APP"
