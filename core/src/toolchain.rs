@@ -9,7 +9,8 @@ use sha2::{Digest, Sha256};
 use crate::util::{home, which, EXE};
 use crate::{AdbCandidate, CoreError, Release, Result};
 
-const RELEASES_API: &str = "https://api.github.com/repos/Genymobile/scrcpy/releases/latest";
+const LATEST_RELEASE: &str = "https://github.com/Genymobile/scrcpy/releases/latest";
+const DOWNLOADS: &str = "https://github.com/Genymobile/scrcpy/releases/download";
 /// Auto mode prefers Android Studio's adb so we don't kill the adb server it is using.
 const ADB_PREFERENCE: [&str; 3] = ["studio", "system", "bundled"];
 
@@ -70,27 +71,25 @@ impl Toolchain {
     /// The newest scrcpy release for this platform, or None if there's no prebuilt one.
     pub fn latest_release(&self) -> Result<Option<Release>> {
         let Some(target) = asset_platform() else { return Ok(None) };
-        let release: serde_json::Value = serde_json::from_slice(&get(RELEASES_API)?)?;
-        let assets: Vec<(&str, &str)> = release["assets"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|a| Some((a["name"].as_str()?, a["browser_download_url"].as_str()?)))
-            .collect();
-        let Some(&(asset, url)) = assets.iter().find(|(name, _)| name.starts_with(&format!("scrcpy-{target}-"))) else {
+        // github.com redirects .../releases/latest to the newest tag. Unlike the GitHub API, that isn't
+        // rate-limited (60 requests an hour per IP), and release files have predictable names.
+        let response = ureq::AgentBuilder::new().redirects(0).build().get(LATEST_RELEASE).set("User-Agent", "tether").call()?;
+        let tag = response
+            .header("location")
+            .and_then(|location| location.rsplit_once("/tag/"))
+            .map(|(_, tag)| tag.to_string())
+            .ok_or_else(|| fail("Couldn't find the latest scrcpy release"))?;
+        let asset = format!("scrcpy-{target}-{tag}.{}", if cfg!(windows) { "zip" } else { "tar.gz" });
+        let base = format!("{DOWNLOADS}/{tag}");
+        let sums = String::from_utf8_lossy(&get(&format!("{base}/SHA256SUMS.txt"))?).into_owned();
+        // No checksum means no build for this platform in this release.
+        let Some(sha256) = sums.lines().find(|line| line.ends_with(&asset)).and_then(|line| line.split_whitespace().next()) else {
             return Ok(None);
         };
-        let sums_url = assets.iter().find(|(name, _)| *name == "SHA256SUMS.txt").map(|(_, url)| *url);
-        let sums = String::from_utf8_lossy(&get(sums_url.ok_or_else(|| fail("Release has no checksums"))?)?).into_owned();
-        let sha256 = sums
-            .lines()
-            .find(|line| line.ends_with(asset))
-            .and_then(|line| line.split_whitespace().next())
-            .ok_or_else(|| fail("Release has no checksum for this platform"))?;
         Ok(Some(Release {
-            version: release["tag_name"].as_str().unwrap_or_default().trim_start_matches('v').into(),
-            url: url.into(),
-            asset: asset.into(),
+            version: tag.trim_start_matches('v').into(),
+            url: format!("{base}/{asset}"),
+            asset,
             sha256: sha256.into(),
         }))
     }
