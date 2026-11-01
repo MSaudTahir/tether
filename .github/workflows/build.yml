@@ -98,7 +98,12 @@ jobs:
           $image = New-Object System.Drawing.Bitmap $bounds.Width, $bounds.Height
           [System.Drawing.Graphics]::FromImage($image).CopyFromScreen($bounds.Location, [System.Drawing.Point]::Empty, $bounds.Size)
           $image.Save("$PWD\windows-screenshot.png")
-          if ($app.HasExited) { throw "Tether exited with code $($app.ExitCode)" }
+          if ($app.HasExited) {
+            Get-Content "$env:LOCALAPPDATA\Tether\crash.log" -ErrorAction SilentlyContinue
+            Get-WinEvent -FilterHashtable @{ LogName = "Application"; ProviderName = ".NET Runtime", "Application Error" } -MaxEvents 3 -ErrorAction SilentlyContinue |
+              ForEach-Object { $_.Message }
+            throw "Tether exited with code $($app.ExitCode)"
+          }
           Stop-Process $app
       - uses: actions/upload-artifact@v4
         if: always() && matrix.arch == 'x64'
