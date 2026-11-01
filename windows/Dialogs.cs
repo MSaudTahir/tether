@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Threading.Tasks;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
@@ -151,7 +152,9 @@ static class Dialogs
     /// A WinUI style or brush by name. Looking it up with Application.Current.Resources[key] from C#
     /// only searches the app's own dictionary, not the merged and theme ones WinUI's live in.
     public static T Resource<T>(string key) =>
-        Find(Application.Current.Resources, key) is T value ? value : throw new KeyNotFoundException($"No resource named {key}");
+        Find(Application.Current.Resources, key) is T value ? value : throw new KeyNotFoundException(
+            $"No resource named {key} (app resources: {Application.Current.Resources.Count} keys, merged: " +
+            string.Join(", ", Application.Current.Resources.MergedDictionaries.Select(d => $"{d.GetType().Name}({d.Count} keys, {d.MergedDictionaries.Count} merged, {d.ThemeDictionaries.Count} themes, source {d.Source})")) + ")");
 
     static object? Find(ResourceDictionary dictionary, string key)
     {
