@@ -15,22 +15,50 @@ pub fn window_size_button(model: &Rc<Model>) -> gtk::MenuButton {
     let button = gtk::MenuButton::builder().child(&label).tooltip_text("Size of the window apps open in").build();
     let presets = window_presets();
 
-    let sizes = gtk::StringList::new(&[]);
-    for preset in &presets {
-        sizes.append(&if preset.width == 0 { preset.name.clone() } else { format!("{} ({} × {})", preset.name, preset.width, preset.height) });
+    // Radio rows and toggle buttons rather than combo rows: a combo's own popover inside this one
+    // stops this one closing on a click outside.
+    let mut size_checks: Vec<gtk::CheckButton> = Vec::new();
+    let mut size_rows: Vec<adw::ActionRow> = Vec::new();
+    for preset in presets.iter().map(Some).chain([None]) {
+        let check = gtk::CheckButton::builder().valign(gtk::Align::Center).build();
+        check.set_group(size_checks.first());
+        let row = adw::ActionRow::builder().activatable_widget(&check).build();
+        match preset {
+            Some(p) if p.width > 0 => {
+                row.set_title(&p.name);
+                row.set_subtitle(&format!("{} × {}", p.width, p.height));
+            }
+            Some(p) => row.set_title(&p.name),
+            None => {
+                row.set_title("Custom");
+                row.set_sensitive(false); // chosen by typing a size below
+            }
+        }
+        row.add_prefix(&check);
+        size_checks.push(check);
+        size_rows.push(row);
     }
-    sizes.append("Custom");
-    let size = adw::ComboRow::builder().title("Size").model(&sizes).build();
     let portrait = adw::SwitchRow::builder().title("Portrait").build();
-    let text_size = adw::ComboRow::builder().title("Text size").model(&gtk::StringList::new(&["Smaller", "Default", "Larger"])).build();
+    let text_sizes: Vec<gtk::ToggleButton> = ["Smaller", "Default", "Larger"].iter().map(|label| gtk::ToggleButton::with_label(label)).collect();
+    let text_box = gtk::Box::builder().css_classes(["linked"]).valign(gtk::Align::Center).build();
+    for button in &text_sizes {
+        button.set_group(text_sizes.first());
+        text_box.append(button);
+    }
+    let text_size = adw::ActionRow::builder().title("Text size").build();
+    text_size.add_suffix(&text_box);
     let resizable = adw::SwitchRow::builder()
         .title("Resizable")
         .subtitle("The app relayouts when you resize its window (less sharp on HiDPI screens)")
         .build();
     let custom = adw::EntryRow::builder().title("Custom size (WIDTHxHEIGHT/DPI)").show_apply_button(true).build();
     let list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).width_request(380).build();
-    for row in [size.upcast_ref::<gtk::Widget>(), portrait.upcast_ref(), text_size.upcast_ref(), resizable.upcast_ref(), custom.upcast_ref()] {
+    for row in &size_rows {
         list.append(row);
+    }
+    let options = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).build();
+    for row in [portrait.upcast_ref::<gtk::Widget>(), text_size.upcast_ref(), resizable.upcast_ref(), custom.upcast_ref()] {
+        options.append(row);
     }
     let footer = gtk::Label::builder()
         .label("Sizes are in points; big ones shrink to fit the screen. Portrait suits most phone apps.")
@@ -45,6 +73,7 @@ pub fn window_size_button(model: &Rc<Model>) -> gtk::MenuButton {
     content.set_margin_start(6);
     content.set_margin_end(6);
     content.append(&list);
+    content.append(&options);
     content.append(&footer);
     button.set_popover(Some(&gtk::Popover::builder().child(&content).build()));
 
@@ -52,7 +81,8 @@ pub fn window_size_button(model: &Rc<Model>) -> gtk::MenuButton {
     let rendering = Rc::new(Cell::new(false));
     let render = {
         let (model, presets, rendering) = (model.clone(), presets.clone(), rendering.clone());
-        let (size, portrait, text_size, resizable, custom) = (size.clone(), portrait.clone(), text_size.clone(), resizable.clone(), custom.clone());
+        let (size_checks, portrait, text_sizes, text_size, resizable, custom) =
+            (size_checks.clone(), portrait.clone(), text_sizes.clone(), text_size.clone(), resizable.clone(), custom.clone());
         move || {
             rendering.set(true);
             let current = model.window_size();
@@ -61,10 +91,10 @@ pub fn window_size_button(model: &Rc<Model>) -> gtk::MenuButton {
             label.set_label(&describe_window_size(current));
             label.set_icon_name(if choice.portrait { "phone-symbolic" } else { "computer-symbolic" });
             let index = choice.preset.as_ref().and_then(|p| presets.iter().position(|q| q.name == p.name)).unwrap_or(presets.len());
-            size.set_selected(index as u32);
+            size_checks[index].set_active(true);
             portrait.set_active(choice.portrait);
             portrait.set_sensitive(!same_as_phone && current.width != 0);
-            text_size.set_selected(choice.text_size as u32);
+            text_sizes[choice.text_size as usize].set_active(true);
             text_size.set_sensitive(choice.preset.is_some() && !same_as_phone);
             resizable.set_active(model.config.borrow().resizable_windows);
             if !custom.has_focus() {
@@ -76,15 +106,14 @@ pub fn window_size_button(model: &Rc<Model>) -> gtk::MenuButton {
     render();
     model.connect_changed(render);
 
-    {
-        let (model, rendering) = (model.clone(), rendering.clone());
-        size.connect_selected_notify(move |row| {
-            let Some(preset) = presets.get(row.selected() as usize).cloned() else { return };
-            if rendering.get() {
+    for (check, preset) in size_checks.iter().zip(presets.iter()) {
+        let (model, rendering, preset) = (model.clone(), rendering.clone(), preset.clone());
+        check.connect_toggled(move |check| {
+            if rendering.get() || !check.is_active() {
                 return;
             }
             let choice = window_choice(model.window_size());
-            model.set_window_size(preset_window_size(preset, choice.portrait, choice.text_size));
+            model.set_window_size(preset_window_size(preset.clone(), choice.portrait, choice.text_size));
         });
     }
     {
@@ -104,14 +133,13 @@ pub fn window_size_button(model: &Rc<Model>) -> gtk::MenuButton {
             }
         });
     }
-    {
+    for (button, size) in text_sizes.iter().zip([TextSize::Smaller, TextSize::Default, TextSize::Larger]) {
         let (model, rendering) = (model.clone(), rendering.clone());
-        text_size.connect_selected_notify(move |row| {
-            if rendering.get() {
+        button.connect_toggled(move |button| {
+            if rendering.get() || !button.is_active() {
                 return;
             }
             let choice = window_choice(model.window_size());
-            let size = [TextSize::Smaller, TextSize::Default, TextSize::Larger][row.selected().min(2) as usize];
             if let Some(preset) = choice.preset {
                 model.set_window_size(preset_window_size(preset, choice.portrait, size));
             }
