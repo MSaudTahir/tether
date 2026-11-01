@@ -46,9 +46,6 @@ sealed class AppModel
 
     void Notify() => Changed?.Invoke();
 
-    /// Redraws the views after a view-only change.
-    public void Redraw() => Notify();
-
     /// Starts watching for devices and checks for a scrcpy update.
     public async void Start()
     {

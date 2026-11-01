@@ -111,11 +111,18 @@
                             </Border>
 
                             <ContentControl x:Name="ControlsHost" HorizontalContentAlignment="Stretch" />
-                            <ContentControl x:Name="DetailsHost" HorizontalContentAlignment="Stretch" />
-                            <ContentControl x:Name="NotificationsHost" HorizontalContentAlignment="Stretch" />
+
+                            <!-- Sections -->
+                            <SelectorBar x:Name="Tabs" HorizontalAlignment="Center" SelectionChanged="Tabs_SelectionChanged">
+                                <SelectorBarItem x:Name="AppsTab" Text="Apps" IsSelected="True" />
+                                <SelectorBarItem x:Name="NotificationsTab" Text="Notifications" />
+                                <SelectorBarItem x:Name="PhoneTab" Text="Phone" />
+                            </SelectorBar>
+                            <ContentControl x:Name="DetailsHost" HorizontalContentAlignment="Stretch" Visibility="Collapsed" />
+                            <ContentControl x:Name="NotificationsHost" HorizontalContentAlignment="Stretch" Visibility="Collapsed" />
 
                             <!-- Apps -->
-                            <StackPanel Spacing="14">
+                            <StackPanel x:Name="AppsPanel" Spacing="14">
                                 <Grid ColumnSpacing="12">
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="Auto" />

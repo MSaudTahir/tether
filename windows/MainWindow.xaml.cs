@@ -120,7 +120,9 @@ public sealed partial class MainWindow : Window
 
         ControlsHost.Content = info != null ? ControlPanel.Controls(device, info) : null;
         DetailsHost.Content = info != null ? ControlPanel.Details(info) : null;
-        NotificationsHost.Content = info != null ? ControlPanel.Notifications(device, model.Notifications.GetValueOrDefault(device.serial) ?? []) : null;
+        var notifications = model.Notifications.GetValueOrDefault(device.serial) ?? [];
+        NotificationsHost.Content = ControlPanel.Notifications(device, notifications);
+        NotificationsTab.Text = notifications.Length > 0 ? $"Notifications ({notifications.Length})" : "Notifications";
 
         var supported = (info?.sdk ?? uint.MaxValue) >= TetherCoreMethods.VirtualDisplayMinSdk();
         AppsHint.Text = supported ? "Click an app to open it in its own window." : "App windows need Android 10 or newer.";
@@ -237,6 +239,14 @@ public sealed partial class MainWindow : Window
         var items = await e.DataView.GetStorageItemsAsync();
         var apks = items.Select(item => item.Path).Where(path => path.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)).ToList();
         if (apks.Count > 0) model.Install(apks, device);
+    }
+
+    /// Shows the selected section.
+    void Tabs_SelectionChanged(SelectorBar sender, SelectorBarSelectionChangedEventArgs args)
+    {
+        AppsPanel.Visibility = Tabs.SelectedItem == AppsTab ? Visibility.Visible : Visibility.Collapsed;
+        NotificationsHost.Visibility = Tabs.SelectedItem == NotificationsTab ? Visibility.Visible : Visibility.Collapsed;
+        DetailsHost.Visibility = Tabs.SelectedItem == PhoneTab ? Visibility.Visible : Visibility.Collapsed;
     }
 
     void Search_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) => Render();
