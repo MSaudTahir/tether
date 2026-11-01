@@ -1,54 +1,30 @@
-# Builds every app on every push and pull request, so breakage shows up right away.
-name: Build
+# Builds the WinUI app (x64 and ARM64) and checks it starts, when it or the core changes.
+# Run it by hand from the Actions tab ("Run workflow") to build regardless.
+name: Windows
 
 on:
   push:
     branches: [main]
+    paths:
+      - "core/**"
+      - "helper/**"
+      - "buddy/**"
+      - "windows/**"
+      - ".github/workflows/windows.yml"
   pull_request:
+    paths:
+      - "core/**"
+      - "helper/**"
+      - "buddy/**"
+      - "windows/**"
+      - ".github/workflows/windows.yml"
   workflow_dispatch:
 
 concurrency:
-  group: build-${{ github.ref }}
+  group: windows-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
-  core:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: core
-      - run: cargo test --release
-        working-directory: core
-
-  macos:
-    runs-on: macos-26
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: core
-      - name: Build Tether.app
-        run: |
-          export DEVELOPER_DIR="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)/Contents/Developer"
-          macos/build.sh
-
-  linux:
-    # 24.04 has GNOME 46's GTK and libadwaita, the oldest Tether supports.
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: linux
-      - run: cargo build --release
-        working-directory: linux
-
   windows:
     strategy:
       fail-fast: false

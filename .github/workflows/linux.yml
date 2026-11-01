@@ -1,0 +1,39 @@
+# Builds the GTK app when it or the core changes.
+# Run it by hand from the Actions tab ("Run workflow") to build regardless.
+name: Linux
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "core/**"
+      - "helper/**"
+      - "buddy/**"
+      - "linux/**"
+      - ".github/workflows/linux.yml"
+  pull_request:
+    paths:
+      - "core/**"
+      - "helper/**"
+      - "buddy/**"
+      - "linux/**"
+      - ".github/workflows/linux.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: linux-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux:
+    # 24.04 has GNOME 46's GTK and libadwaita, the oldest Tether supports.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: linux
+      - run: cargo build --release
+        working-directory: linux

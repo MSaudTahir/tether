@@ -1,0 +1,35 @@
+# Runs the core's tests when it (or what it embeds) changes.
+# Run it by hand from the Actions tab ("Run workflow") to build regardless.
+name: Core
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "core/**"
+      - "helper/**"
+      - "buddy/**"
+      - ".github/workflows/core.yml"
+  pull_request:
+    paths:
+      - "core/**"
+      - "helper/**"
+      - "buddy/**"
+      - ".github/workflows/core.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: core-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - run: cargo test --release
+        working-directory: core

@@ -1,0 +1,41 @@
+# Builds Tether.app when it or the core changes.
+# Run it by hand from the Actions tab ("Run workflow") to build regardless.
+name: macOS
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "core/**"
+      - "helper/**"
+      - "buddy/**"
+      - "macos/**"
+      - "icon/**"
+      - ".github/workflows/macos.yml"
+  pull_request:
+    paths:
+      - "core/**"
+      - "helper/**"
+      - "buddy/**"
+      - "macos/**"
+      - "icon/**"
+      - ".github/workflows/macos.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: macos-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: Build Tether.app
+        run: |
+          export DEVELOPER_DIR="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)/Contents/Developer"
+          macos/build.sh
