@@ -1,6 +1,6 @@
 import SwiftUI
 
-/// The phone's current notifications; clicking one opens its app.
+/// The phone's current notifications, as separate cards like the phone shows them.
 struct NotificationsList: View {
     @Environment(AppModel.self) private var model
     let device: Device
@@ -10,53 +10,75 @@ struct NotificationsList: View {
         if all.isEmpty {
             ContentUnavailableView("No Notifications", systemImage: "bell.slash", description: Text("Notifications on the phone show up here."))
         } else {
-            LazyVStack(spacing: 2) {
-                ForEach(all, id: \.key) { notification in
-                    NotificationRow(notification: notification) { model.open(notification, on: device) }
+            VStack(alignment: .leading, spacing: 10) {
+                Text("Click a notification to tap it on the phone's screen.")
+                    .foregroundStyle(.secondary)
+                LazyVStack(spacing: 10) {
+                    ForEach(all, id: \.key) { notification in
+                        NotificationCard(notification: notification, device: device)
+                    }
                 }
             }
-            .padding(6)
-            .glassEffect(.regular, in: .rect(cornerRadius: 20))
+            .frame(maxWidth: 720)
+            .frame(maxWidth: .infinity)
         }
     }
 }
 
-private struct NotificationRow: View {
+private struct NotificationCard: View {
+    @Environment(AppModel.self) private var model
     let notification: PhoneNotification
-    let action: () -> Void
+    let device: Device
     @State private var hovering = false
 
     var body: some View {
-        Button(action: action) {
-            HStack(alignment: .top, spacing: 12) {
-                AppIcon(app: DeviceApp(name: appName, package: notification.package, system: false, iconPath: notification.iconPath))
-                    .frame(width: 32, height: 32)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack {
-                        Text(appName).font(.caption).foregroundStyle(.secondary)
-                        Spacer()
-                        if notification.time > 0 {
-                            Text(Date(timeIntervalSince1970: Double(notification.time) / 1000), format: .relative(presentation: .named))
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
+        Button {
+            model.show(notification, on: device)
+        } label: {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    AppIcon(app: DeviceApp(name: appName, package: notification.package, system: false, iconPath: notification.iconPath))
+                        .frame(width: 20, height: 20)
+                    Text(appName)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    if notification.time > 0 {
+                        Text("·").foregroundStyle(.secondary)
+                        Text(Date(timeIntervalSince1970: Double(notification.time) / 1000), format: .relative(presentation: .named))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
                     }
-                    if !notification.title.isEmpty {
-                        Text(notification.title).font(.headline).lineLimit(1)
-                    }
-                    if !notification.text.isEmpty {
-                        Text(notification.text).lineLimit(3).foregroundStyle(.secondary)
+                    Spacer()
+                    if hovering {
+                        Button("Open App") { model.openApp(of: notification, on: device) }
+                            .controlSize(.small)
+                            .buttonStyle(.glass)
                     }
                 }
+                if !notification.title.isEmpty {
+                    Text(notification.title).font(.headline).lineLimit(1)
+                }
+                if !notification.text.isEmpty {
+                    Text(notification.text).lineLimit(4)
+                }
             }
-            .padding(10)
+            .padding(14)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(.quaternary.opacity(hovering ? 1 : 0), in: .rect(cornerRadius: 14))
-            .contentShape(.rect(cornerRadius: 14))
+            .glassEffect(.regular.interactive(), in: .rect(cornerRadius: 18))
+            .contentShape(.rect(cornerRadius: 18))
         }
         .buttonStyle(.plain)
         .onHover { hovering = $0 }
-        .help("Open \(appName)")
+        .help("Show on the phone's screen to tap it")
+        .contextMenu {
+            Button("Show on Phone") { model.show(notification, on: device) }
+            Button("Open \(appName)") { model.openApp(of: notification, on: device) }
+            Divider()
+            Button("Copy Text") {
+                NSPasteboard.general.clearContents()
+                NSPasteboard.general.setString([notification.title, notification.text].filter { !$0.isEmpty }.joined(separator: "\n"), forType: .string)
+            }
+        }
     }
 
     private var appName: String {

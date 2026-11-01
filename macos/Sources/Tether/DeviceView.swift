@@ -41,6 +41,7 @@ struct DeviceView: View {
                         DeviceHeader(device: device, info: model.info[device.serial])
                         if let info = model.info[device.serial] {
                             ControlsCard(device: device, info: info)
+                            ClipboardCard(device: device)
                             DetailsCard(info: info)
                         }
                     case .apps:

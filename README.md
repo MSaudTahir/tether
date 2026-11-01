@@ -9,7 +9,9 @@ A small desktop app for using your Android phone from your computer, built on
 - **Open apps in their own windows**: pick an app from a grid of your phone's apps and it opens on
   a separate virtual display, sized like a desktop window (Small, Medium, Large or the phone's own
   size, portrait or landscape) and resizable. Needs Android 10+.
-- **Notifications**: see the phone's notifications; click one to open its app.
+- **Notifications**: see the phone's notifications. Click one to show it on the phone's screen
+  (mirrored, with the notification shade open) and tap it there, or open its app.
+- **Clipboard**: send your computer's clipboard to the phone, or copy the phone's to the computer.
 - **Control panel**: storage, memory, battery health and temperature, chipset, display and more;
   take screenshots, install APKs (or drop them on the window), press Back/Home/Volume/Power, switch
   dark mode or "stay awake", and restart the phone.
@@ -53,7 +55,7 @@ choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/Tether.app
    press **Go Wireless** while connected by USB.
 3. The sidebar shows the phone (switch phones or pair one from its menu) and its sections:
    **Overview** (status, controls and details), **Apps** (click one to open it in its own window)
-   and **Notifications** (click one to open its app). **Mirror Screen** in the toolbar shows the
+   and **Notifications**. **Mirror Screen** in the toolbar shows the
    whole screen. **Refresh** reloads the app list; it's cached until then.
 
 | | macOS | Linux / Windows |
@@ -71,6 +73,10 @@ choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/Tether.app
 - **Capture Mouse** in app windows turns on the phone's *Force desktop mode* developer option so the
   mouse shows up on the app's display instead of the phone screen. You can turn it off again in
   Developer options. Capture Mouse itself is off each time Tether starts.
+- **Notifications** can't be acted on directly over adb (only the phone can run a notification's
+  action), so clicking one mirrors the phone with the notification shade open for you to tap it.
+- **Copying the phone's clipboard** needs a phone that lets adb read it in the background; Xiaomi
+  phones don't. Sending to the phone works everywhere.
 - Some phones (e.g. Xiaomi/MIUI) need **USB debugging (Security settings)** turned on before the
   mouse and keyboard work.
 

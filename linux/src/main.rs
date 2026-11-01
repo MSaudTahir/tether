@@ -314,6 +314,16 @@ fn build(app: &adw::Application) {
 #[cfg(debug_assertions)]
 fn snapshot_for_debugging(window: &adw::ApplicationWindow) {
     let Ok(path) = std::env::var("TETHER_SNAPSHOT") else { return };
+    // TETHER_SNAPSHOT_SECTION=apps|notifications picks the section to show.
+    if let Ok(section) = std::env::var("TETHER_SNAPSHOT_SECTION") {
+        let window = window.clone();
+        glib::timeout_add_seconds_local_once(5, move || {
+            if let Some(list) = find_sections(window.upcast_ref()) {
+                let index = ["overview", "apps", "notifications"].iter().position(|s| *s == section).unwrap_or(0);
+                list.select_row(list.row_at_index(index as i32).as_ref());
+            }
+        });
+    }
     let window = window.clone();
     glib::timeout_add_seconds_local_once(10, move || {
         let paintable = gtk::WidgetPaintable::new(Some(&window));
@@ -354,4 +364,20 @@ fn screen_of(window: &adw::ApplicationWindow) -> Screen {
 fn stop_sessions_on_quit(app: &adw::Application, model: &Rc<Model>) {
     let core = model.core.clone();
     app.connect_shutdown(move |_| core.stop_sessions());
+}
+
+/// The sidebar's section list (debug snapshots only).
+#[cfg(debug_assertions)]
+fn find_sections(widget: &gtk::Widget) -> Option<gtk::ListBox> {
+    if let Some(list) = widget.downcast_ref::<gtk::ListBox>().filter(|l| l.has_css_class("navigation-sidebar")) {
+        return Some(list.clone());
+    }
+    let mut child = widget.first_child();
+    while let Some(c) = child {
+        if let Some(found) = find_sections(&c) {
+            return Some(found);
+        }
+        child = c.next_sibling();
+    }
+    None
 }

@@ -84,8 +84,18 @@ final class AppModel {
         }
     }
 
+    /// Mirrors the phone with its notification shade pulled down, so the notification can be tapped:
+    /// only the phone can run a notification's action.
+    func show(_ notification: PhoneNotification, on device: Device) {
+        let core = core
+        Task {
+            try? await offMain { try core.showNotificationShade(serial: device.serial) }
+            mirror(device)
+        }
+    }
+
     /// Opens the notification's app: in its own window if the phone supports that, else mirrored.
-    func open(_ notification: PhoneNotification, on device: Device) {
+    func openApp(of notification: PhoneNotification, on device: Device) {
         let app = apps[device.serial]?.first { $0.package == notification.package }
             ?? DeviceApp(name: notification.appName, package: notification.package, system: false, iconPath: nil)
         if (info[device.serial]?.sdk ?? 0) >= virtualDisplayMinSdk() {
@@ -210,6 +220,44 @@ final class AppModel {
                 alert = error.localizedDescription
             }
             await loadInfo(device.serial)
+        }
+    }
+
+    /// A short result of the last clipboard action, per phone.
+    var clipboardStatus: [String: String] = [:]
+
+    /// Puts the Mac's clipboard text on the phone's clipboard.
+    func sendClipboard(to device: Device) {
+        guard let text = NSPasteboard.general.string(forType: .string), !text.isEmpty else {
+            clipboardStatus[device.serial] = "The Mac's clipboard has no text."
+            return
+        }
+        let core = core
+        Task {
+            do {
+                try await offMain { try core.setPhoneClipboard(serial: device.serial, text: text) }
+                clipboardStatus[device.serial] = "Sent \(text.count) characters to the phone."
+            } catch {
+                clipboardStatus[device.serial] = error.localizedDescription
+            }
+        }
+    }
+
+    /// Copies the phone's clipboard text to the Mac's clipboard.
+    func copyClipboard(from device: Device) {
+        let core = core
+        Task {
+            do {
+                if let text = try await offMain({ try core.phoneClipboard(serial: device.serial) }) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(text, forType: .string)
+                    clipboardStatus[device.serial] = "Copied \(text.count) characters from the phone."
+                } else {
+                    clipboardStatus[device.serial] = "Nothing to copy: the phone's clipboard is empty, or the phone doesn't let it be read (Xiaomi phones don't)."
+                }
+            } catch {
+                clipboardStatus[device.serial] = error.localizedDescription
+            }
         }
     }
 

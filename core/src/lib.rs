@@ -307,6 +307,35 @@ impl Core {
         Ok(list)
     }
 
+    /// Pulls down the phone's notification shade, e.g. in a mirror window, so a notification can be
+    /// tapped: only the phone can run a notification's action (adb can't read or send it).
+    pub fn show_notification_shade(&self, serial: String) -> Result<()> {
+        self.adb()?.shell(&serial, "cmd statusbar expand-notifications")
+    }
+
+    /// The phone's clipboard text; None if it's empty or the phone doesn't let adb read it in the
+    /// background (some, e.g. Xiaomi's, don't).
+    pub fn phone_clipboard(&self, serial: String) -> Result<Option<String>> {
+        let out = apps::helper(&self.adb()?, &self.data_dir, &serial, &["clipboard"])?;
+        // The answer is the last line that's valid base64; other lines are OEM log noise.
+        let text = out
+            .lines()
+            .rev()
+            .filter_map(|line| base64::Engine::decode(&base64::engine::general_purpose::STANDARD, line.trim()).ok())
+            .next()
+            .and_then(|bytes| String::from_utf8(bytes).ok());
+        Ok(text.filter(|t| !t.is_empty()))
+    }
+
+    pub fn set_phone_clipboard(&self, serial: String, text: String) -> Result<()> {
+        let encoded = base64::Engine::encode(&base64::engine::general_purpose::STANDARD, text.as_bytes());
+        let out = apps::helper(&self.adb()?, &self.data_dir, &serial, &["clipboard", &encoded])?;
+        if !out.lines().any(|l| l.trim() == "ok") {
+            return Err(CoreError::Failed("Couldn't set the phone's clipboard.".into()));
+        }
+        Ok(())
+    }
+
     pub fn pair(&self, address: String, code: String) -> Result<()> {
         self.adb()?.pair(&address, &code)
     }

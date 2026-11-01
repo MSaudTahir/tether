@@ -77,32 +77,57 @@ static class ControlPanel
         return Card(columns);
     }
 
-    /// The phone's current notifications; clicking one opens its app.
+    /// The phone's current notifications, as separate cards like the phone shows them.
     public static FrameworkElement Notifications(Device device, PhoneNotification[] all)
     {
         if (all.Length == 0) return Dialogs.Note("No notifications. Notifications on the phone show up here.");
-        var list = new StackPanel { Spacing = 2 };
+        var list = new StackPanel { Spacing = 10, MaxWidth = 720 };
+        list.Children.Add(Dialogs.Note("Click a notification to tap it on the phone's screen."));
         foreach (var notification in all)
         {
             var appName = notification.appName == "" ? notification.package : notification.appName;
             var when = notification.time > 0 ? " · " + DateTimeOffset.FromUnixTimeMilliseconds((long)notification.time).ToLocalTime().ToString("t") : "";
-            var text = new StackPanel { Spacing = 2 };
-            text.Children.Add(Dialogs.Note($"{appName}{when}"));
-            if (notification.title != "") text.Children.Add(new TextBlock { Text = notification.title, Style = Dialogs.Resource<Style>("BodyStrongTextBlockStyle"), TextTrimming = TextTrimming.CharacterEllipsis });
-            if (notification.text != "") text.Children.Add(new TextBlock { Text = notification.text, TextWrapping = TextWrapping.Wrap, MaxLines = 3, TextTrimming = TextTrimming.CharacterEllipsis, Opacity = 0.75 });
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
-            row.Children.Add(MainWindow.AppIcon(new DeviceApp(appName, notification.package, false, notification.iconPath), 32));
-            row.Children.Add(text);
-            var button = new Button
+            var header = new Grid();
+            var source = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+            source.Children.Add(MainWindow.AppIcon(new DeviceApp(appName, notification.package, false, notification.iconPath), 20));
+            source.Children.Add(Dialogs.Note(appName + when));
+            header.Children.Add(source);
+            var open = new HyperlinkButton { Content = "Open App", HorizontalAlignment = HorizontalAlignment.Right, Padding = new Thickness(4, 0, 4, 0) };
+            ToolTipService.SetToolTip(open, $"Open {appName}");
+            open.Click += (_, _) => Model.OpenApp(notification, device);
+            header.Children.Add(open);
+
+            var content = new StackPanel { Spacing = 4 };
+            content.Children.Add(header);
+            if (notification.title != "") content.Children.Add(new TextBlock { Text = notification.title, Style = Dialogs.Resource<Style>("BodyStrongTextBlockStyle"), TextTrimming = TextTrimming.CharacterEllipsis });
+            if (notification.text != "") content.Children.Add(new TextBlock { Text = notification.text, TextWrapping = TextWrapping.Wrap, MaxLines = 4, TextTrimming = TextTrimming.CharacterEllipsis });
+            var card = new Microsoft.UI.Xaml.Controls.Button
             {
-                Content = row, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left,
-                Padding = new Thickness(10), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0),
+                Content = content, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                Padding = new Thickness(14, 12, 14, 12), CornerRadius = new CornerRadius(12),
+                Background = Dialogs.Resource<Brush>("CardBackgroundFillColorDefaultBrush"),
+                BorderBrush = Dialogs.Resource<Brush>("CardStrokeColorDefaultBrush"),
             };
-            ToolTipService.SetToolTip(button, $"Open {appName}");
-            button.Click += (_, _) => Model.Open(notification, device);
-            list.Children.Add(button);
+            ToolTipService.SetToolTip(card, "Show on the phone's screen to tap it");
+            card.Click += (_, _) => Model.Show(notification, device);
+            list.Children.Add(card);
         }
-        return Card(list);
+        return list;
+    }
+
+    /// Moves text between this PC's and the phone's clipboards.
+    public static FrameworkElement Clipboard(Device device)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+        var label = Label("\uE77F", "Clipboard");
+        label.Opacity = 0.7;
+        label.VerticalAlignment = VerticalAlignment.Center;
+        row.Children.Add(label);
+        row.Children.Add(Button("\uE898", "Send Clipboard to Phone", "Put this PC's clipboard text on the phone's clipboard", () => Model.SendClipboard(device)));
+        row.Children.Add(Button("\uE8C8", "Copy Phone Clipboard", "Copy the phone's clipboard text to this PC", () => Model.CopyClipboard(device)));
+        if (Model.ClipboardStatus.TryGetValue(device.serial, out var status))
+            row.Children.Add(new TextBlock { Text = status, VerticalAlignment = VerticalAlignment.Center, Opacity = 0.7, TextWrapping = TextWrapping.Wrap, MaxWidth = 420 });
+        return Card(row);
     }
 
     static string Battery(DeviceInfo info)
@@ -204,17 +229,17 @@ static class ControlPanel
         return label;
     }
 
-    static Button Button(string glyph, string text, string tip, Action action)
+    static Microsoft.UI.Xaml.Controls.Button Button(string glyph, string text, string tip, Action action)
     {
-        var button = new Button { Content = Label(glyph, text) };
+        var button = new Microsoft.UI.Xaml.Controls.Button { Content = Label(glyph, text) };
         ToolTipService.SetToolTip(button, tip);
         button.Click += (_, _) => action();
         return button;
     }
 
-    static Button Key(Device device, DeviceKey key, string glyph, string tip)
+    static Microsoft.UI.Xaml.Controls.Button Key(Device device, DeviceKey key, string glyph, string tip)
     {
-        var button = new Button { Content = new FontIcon { Glyph = glyph, FontSize = 16 } };
+        var button = new Microsoft.UI.Xaml.Controls.Button { Content = new FontIcon { Glyph = glyph, FontSize = 16 } };
         ToolTipService.SetToolTip(button, tip);
         button.Click += (_, _) => Model.Press(key, device);
         return button;

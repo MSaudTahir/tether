@@ -125,6 +125,7 @@ public sealed partial class MainWindow : Window
         WindowSizeButton.Content = TetherCoreMethods.DescribeWindowSize(model.WindowSize);
 
         ControlsHost.Content = info != null ? ControlPanel.Controls(device, info) : null;
+        ClipboardHost.Content = info != null ? ControlPanel.Clipboard(device) : null;
         DetailsHost.Content = info != null ? ControlPanel.Details(info) : null;
         var notifications = model.Notifications.GetValueOrDefault(device.serial) ?? [];
         NotificationsHost.Content = ControlPanel.Notifications(device, notifications);

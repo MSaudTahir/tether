@@ -137,6 +137,7 @@
                             </Border>
 
                             <ContentControl x:Name="ControlsHost" HorizontalContentAlignment="Stretch" />
+                            <ContentControl x:Name="ClipboardHost" HorizontalContentAlignment="Stretch" />
                             <ContentControl x:Name="DetailsHost" HorizontalContentAlignment="Stretch" />
                             </StackPanel>
                             <ContentControl x:Name="NotificationsHost" HorizontalContentAlignment="Stretch" Visibility="Collapsed" />

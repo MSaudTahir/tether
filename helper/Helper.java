@@ -1,6 +1,7 @@
 package tether;
 
 import android.app.Application;
+import android.content.ClipData;
 import android.content.Context;
 import android.content.ContextWrapper;
 import android.content.Intent;
@@ -11,6 +12,7 @@ import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
+import android.os.IBinder;
 import android.os.Looper;
 import android.util.Base64;
 import android.util.DisplayMetrics;
@@ -29,11 +31,17 @@ import java.util.Set;
  * With no arguments, prints one line per launchable app: package \t system (0/1) \t label \t base64 PNG icon
  * With "packages p1 p2 ...", prints the same for those packages (e.g. system apps that post
  * notifications but can't be launched); unknown packages are skipped.
+ * With "clipboard", prints the clipboard's text as base64 (empty if there's none).
+ * With "clipboard BASE64", sets the clipboard to that text.
  */
 public final class Helper {
     private static final int ICON_SIZE = 96;
 
     public static void main(String[] args) throws Exception {
+        if (args.length > 0 && args[0].equals("clipboard")) {
+            clipboard(args.length > 1 ? args[1] : null);
+            return;
+        }
         PackageManager pm = systemContext().getPackageManager();
         PrintStream out = new PrintStream(System.out, false, "UTF-8");
         if (args.length > 0 && args[0].equals("packages")) {
@@ -83,6 +91,60 @@ public final class Helper {
             System.err.println(app.packageName + ": " + e);
             return ""; // keep the app, just without an icon
         }
+    }
+
+    private static final String SHELL = "com.android.shell";
+
+    /**
+     * Reads or sets the clipboard through the clipboard service as the shell, which may read it in
+     * the background. The service's methods changed over Android versions, so try each form
+     * (newest last), as scrcpy does.
+     */
+    private static void clipboard(String setBase64) throws Exception {
+        Class<?> serviceManager = Class.forName("android.os.ServiceManager");
+        IBinder binder = (IBinder) serviceManager.getMethod("getService", String.class).invoke(null, "clipboard");
+        Object service = Class.forName("android.content.IClipboard$Stub").getMethod("asInterface", IBinder.class).invoke(null, binder);
+        if (setBase64 == null) {
+            ClipData clip = (ClipData) call(service, "getPrimaryClip");
+            CharSequence text = clip == null || clip.getItemCount() == 0 ? null : clip.getItemAt(0).getText();
+            byte[] bytes = text == null ? new byte[0] : text.toString().getBytes("UTF-8");
+            System.out.println(Base64.encodeToString(bytes, Base64.NO_WRAP));
+        } else {
+            String text = new String(Base64.decode(setBase64, Base64.DEFAULT), "UTF-8");
+            call(service, "setPrimaryClip", ClipData.newPlainText(null, text));
+            System.out.println("ok");
+        }
+    }
+
+    /** Calls `name` with the clip (if any), then the shell package, then whatever else this Android version wants. */
+    private static Object call(Object service, String name, Object... clip) throws Exception {
+        for (Method method : service.getClass().getMethods()) {
+            if (!method.getName().equals(name)) {
+                continue;
+            }
+            Class<?>[] types = method.getParameterTypes();
+            Object[] args = new Object[types.length];
+            int i = 0;
+            for (Object c : clip) {
+                args[i++] = c;
+            }
+            if (i < types.length && types[i] == String.class) {
+                args[i++] = SHELL; // calling package
+            }
+            for (; i < types.length; i++) {
+                if (types[i] == String.class) {
+                    args[i] = null; // attribution tag
+                } else if (types[i] == int.class) {
+                    args[i] = 0; // user id, then device id
+                } else if (types[i] == boolean.class) {
+                    args[i] = false;
+                } else {
+                    args[i] = null;
+                }
+            }
+            return method.invoke(service, args);
+        }
+        throw new NoSuchMethodException(name);
     }
 
     /**

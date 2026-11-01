@@ -149,6 +149,7 @@ impl DevicePage {
         self.top.append(&self.header(&device, info.as_ref()));
         if let Some(info) = &info {
             self.top.append(&self.controls(&device, info));
+            self.top.append(&self.clipboard(&device));
         }
         replace_children(&self.details_box, info.as_ref().map(details));
         replace_children(&self.notifications_box, Some(self.notifications(&device)));
@@ -329,7 +330,7 @@ impl DevicePage {
         card.upcast()
     }
 
-    /// The phone's current notifications; clicking one opens its app.
+    /// The phone's current notifications, as separate cards like the phone shows them.
     fn notifications(&self, device: &Device) -> gtk::Widget {
         let all = self.model.notifications.borrow().get(&device.serial).cloned().unwrap_or_default();
         if all.is_empty() {
@@ -340,31 +341,85 @@ impl DevicePage {
                 .build()
                 .upcast();
         }
-        let list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).build();
+        let list = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        list.append(&gtk::Label::builder().label("Click a notification to tap it on the phone's screen.").xalign(0.0).css_classes(["dim-label"]).build());
         for notification in all {
-            let app_name = if notification.app_name.is_empty() { notification.package.clone() } else { notification.app_name.clone() };
-            let when = glib::DateTime::from_unix_local((notification.time / 1000) as i64)
-                .ok()
-                .filter(|_| notification.time > 0)
-                .and_then(|t| t.format(" · %H:%M").ok())
-                .map(|t| t.to_string())
-                .unwrap_or_default();
-            let row = adw::ActionRow::builder()
-                .title(glib::markup_escape_text(if notification.title.is_empty() { &app_name } else { &notification.title }))
-                .subtitle(glib::markup_escape_text(&notification.text))
-                .subtitle_lines(3)
-                .activatable(true)
-                .tooltip_text(format!("Open {app_name}"))
-                .build();
-            let icon = app_tile_icon(&DeviceApp { name: app_name.clone(), package: notification.package.clone(), system: false, icon_path: notification.icon_path.clone() }, 32);
-            row.add_prefix(&icon);
-            let meta = gtk::Label::builder().label(format!("{app_name}{when}")).css_classes(["caption", "dim-label"]).valign(gtk::Align::Start).build();
-            row.add_suffix(&meta);
-            let (model, device) = (self.model.clone(), device.clone());
-            row.connect_activated(move |_| model.open_notification(&notification, &device));
-            list.append(&row);
+            list.append(&self.notification_card(notification, device));
         }
-        list.upcast()
+        adw::Clamp::builder().maximum_size(720).child(&list).build().upcast()
+    }
+
+    fn notification_card(&self, notification: PhoneNotification, device: &Device) -> gtk::Widget {
+        let app_name = if notification.app_name.is_empty() { notification.package.clone() } else { notification.app_name.clone() };
+        let when = glib::DateTime::from_unix_local((notification.time / 1000) as i64)
+            .ok()
+            .filter(|_| notification.time > 0)
+            .and_then(|t| t.format(" · %H:%M").ok())
+            .map(|t| t.to_string())
+            .unwrap_or_default();
+        let content = gtk::Box::new(gtk::Orientation::Vertical, 6);
+        content.set_margin_top(12);
+        content.set_margin_bottom(12);
+        content.set_margin_start(14);
+        content.set_margin_end(14);
+        let header = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        header.append(&app_tile_icon(&DeviceApp { name: app_name.clone(), package: notification.package.clone(), system: false, icon_path: notification.icon_path.clone() }, 20));
+        header.append(&gtk::Label::builder().label(format!("{app_name}{when}")).xalign(0.0).css_classes(["caption", "dim-label"]).build());
+        content.append(&header);
+        if !notification.title.is_empty() {
+            content.append(&gtk::Label::builder().label(&notification.title).xalign(0.0).ellipsize(gtk::pango::EllipsizeMode::End).css_classes(["heading"]).build());
+        }
+        if !notification.text.is_empty() {
+            content.append(&gtk::Label::builder().label(&notification.text).xalign(0.0).wrap(true).wrap_mode(gtk::pango::WrapMode::WordChar).lines(4).ellipsize(gtk::pango::EllipsizeMode::End).build());
+        }
+        let card = gtk::Button::builder().child(&content).css_classes(["card"]).tooltip_text("Show on the phone's screen to tap it").build();
+        {
+            let (model, device) = (self.model.clone(), device.clone());
+            card.connect_clicked(move |_| model.show_notification(&device));
+        }
+        let open = gtk::Button::builder()
+            .label("Open App")
+            .tooltip_text(format!("Open {app_name}"))
+            .css_classes(["flat", "caption"])
+            .halign(gtk::Align::End)
+            .valign(gtk::Align::Start)
+            .margin_top(6)
+            .margin_end(6)
+            .build();
+        {
+            let (model, device) = (self.model.clone(), device.clone());
+            open.connect_clicked(move |_| model.open_notification_app(&notification, &device));
+        }
+        let overlay = gtk::Overlay::builder().child(&card).build();
+        overlay.add_overlay(&open);
+        overlay.upcast()
+    }
+
+    /// Moves text between this computer's and the phone's clipboards.
+    fn clipboard(&self, device: &Device) -> gtk::Widget {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        let label = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        label.add_css_class("dim-label");
+        label.append(&gtk::Image::from_icon_name("edit-paste-symbolic"));
+        label.append(&gtk::Label::new(Some("Clipboard")));
+        row.append(&label);
+        let send = labeled_button("send-to-symbolic", "Send Clipboard to Phone");
+        send.set_tooltip_text(Some("Put this computer's clipboard text on the phone's clipboard"));
+        {
+            let (model, d) = (self.model.clone(), device.clone());
+            send.connect_clicked(move |_| model.send_clipboard(&d));
+        }
+        let copy = labeled_button("edit-copy-symbolic", "Copy Phone Clipboard");
+        copy.set_tooltip_text(Some("Copy the phone's clipboard text to this computer"));
+        {
+            let (model, d) = (self.model.clone(), device.clone());
+            copy.connect_clicked(move |_| model.copy_clipboard(&d));
+        }
+        row.append(&send);
+        row.append(&copy);
+        let card = card();
+        card.append(&row);
+        card.upcast()
     }
 
     fn render_apps(&self, apps: Option<Rc<Vec<DeviceApp>>>) {

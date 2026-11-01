@@ -8,6 +8,7 @@ use std::rc::Rc;
 use std::sync::Arc;
 use std::time::Duration;
 
+use gtk::prelude::*;
 use gtk::{gio, glib};
 use tether_core::*;
 
@@ -209,8 +210,18 @@ impl Model {
         }
     }
 
+    /// Mirrors the phone with its notification shade pulled down, so the notification can be tapped:
+    /// only the phone can run a notification's action.
+    pub fn show_notification(self: &Rc<Self>, device: &Device) {
+        let (core, serial, model, device) = (self.core.clone(), device.serial.clone(), self.clone(), device.clone());
+        glib::spawn_future_local(async move {
+            let _ = off_main(move || core.show_notification_shade(serial)).await;
+            model.mirror(&device);
+        });
+    }
+
     /// Opens the notification's app: in its own window if the phone supports that, else mirrored.
-    pub fn open_notification(self: &Rc<Self>, notification: &PhoneNotification, device: &Device) {
+    pub fn open_notification_app(self: &Rc<Self>, notification: &PhoneNotification, device: &Device) {
         let supported = self.info.borrow().get(&device.serial).is_some_and(|i| i.sdk >= virtual_display_min_sdk());
         if !supported {
             return self.mirror(device);
@@ -252,6 +263,38 @@ impl Model {
         let title = format!("{} · {}", app.name, self.name(device));
         let screen = self.screen.get();
         self.launch(move |core| core.open_app(serial, package, title, screen));
+    }
+
+    /// Puts this computer's clipboard text on the phone's clipboard.
+    pub fn send_clipboard(self: &Rc<Self>, device: &Device) {
+        let (model, device) = (self.clone(), device.clone());
+        glib::spawn_future_local(async move {
+            let clipboard = gtk::gdk::Display::default().unwrap().clipboard();
+            let text = clipboard.read_text_future().await.ok().flatten().map(|t| t.to_string()).unwrap_or_default();
+            if text.is_empty() {
+                return model.toast("The clipboard has no text.", None);
+            }
+            let (core, serial, count) = (model.core.clone(), device.serial.clone(), text.chars().count());
+            match off_main(move || core.set_phone_clipboard(serial, text)).await {
+                Ok(()) => model.toast(&format!("Sent {count} characters to the phone"), None),
+                Err(e) => model.alert(&e.to_string()),
+            }
+        });
+    }
+
+    /// Copies the phone's clipboard text to this computer's clipboard.
+    pub fn copy_clipboard(self: &Rc<Self>, device: &Device) {
+        let (core, serial, model) = (self.core.clone(), device.serial.clone(), self.clone());
+        glib::spawn_future_local(async move {
+            match off_main(move || core.phone_clipboard(serial)).await {
+                Ok(Some(text)) => {
+                    gtk::gdk::Display::default().unwrap().clipboard().set_text(&text);
+                    model.toast(&format!("Copied {} characters from the phone", text.chars().count()), None);
+                }
+                Ok(None) => model.alert("Nothing to copy: the phone's clipboard is empty, or the phone doesn't let it be read (Xiaomi phones don't)."),
+                Err(e) => model.alert(&e.to_string()),
+            }
+        });
     }
 
     pub fn go_wireless(self: &Rc<Self>, device: &Device) {

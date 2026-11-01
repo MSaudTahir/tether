@@ -120,8 +120,17 @@ sealed class AppModel
         catch { }
     }
 
+    /// Mirrors the phone with its notification shade pulled down, so the notification can be tapped:
+    /// only the phone can run a notification's action.
+    public async void Show(PhoneNotification notification, Device device)
+    {
+        try { await Task.Run(() => Core.ShowNotificationShade(device.serial)); }
+        catch { }
+        Mirror(device);
+    }
+
     /// Opens the notification's app: in its own window if the phone supports that, else mirrored.
-    public void Open(PhoneNotification notification, Device device)
+    public void OpenApp(PhoneNotification notification, Device device)
     {
         var supported = Info.TryGetValue(device.serial, out var info) && info.sdk >= TetherCoreMethods.VirtualDisplayMinSdk();
         if (!supported) { Mirror(device); return; }
@@ -225,6 +234,46 @@ sealed class AppModel
         try { await Task.Run(action); }
         catch (Exception e) { Alert?.Invoke(e.Message); }
         await LoadInfo(device.serial);
+    }
+
+    /// A short result of the last clipboard action, per phone.
+    public readonly Dictionary<string, string> ClipboardStatus = [];
+
+    /// Puts this PC's clipboard text on the phone's clipboard.
+    public async void SendClipboard(Device device)
+    {
+        var content = Windows.ApplicationModel.DataTransfer.Clipboard.GetContent();
+        var text = content.Contains(Windows.ApplicationModel.DataTransfer.StandardDataFormats.Text) ? await content.GetTextAsync() : "";
+        if (text == "") { ClipboardStatus[device.serial] = "The clipboard has no text."; Notify(); return; }
+        try
+        {
+            await Task.Run(() => Core.SetPhoneClipboard(device.serial, text));
+            ClipboardStatus[device.serial] = $"Sent {text.Length} characters to the phone.";
+        }
+        catch (Exception e) { ClipboardStatus[device.serial] = e.Message; }
+        Notify();
+    }
+
+    /// Copies the phone's clipboard text to this PC's clipboard.
+    public async void CopyClipboard(Device device)
+    {
+        try
+        {
+            var text = await Task.Run(() => Core.PhoneClipboard(device.serial));
+            if (text != null)
+            {
+                var package = new Windows.ApplicationModel.DataTransfer.DataPackage();
+                package.SetText(text);
+                Windows.ApplicationModel.DataTransfer.Clipboard.SetContent(package);
+                ClipboardStatus[device.serial] = $"Copied {text.Length} characters from the phone.";
+            }
+            else
+            {
+                ClipboardStatus[device.serial] = "Nothing to copy: the phone's clipboard is empty, or the phone doesn't let it be read (Xiaomi phones don't).";
+            }
+        }
+        catch (Exception e) { ClipboardStatus[device.serial] = e.Message; }
+        Notify();
     }
 
     public void GoWireless(Device device) => Run(() => Core.GoWireless(device.serial));

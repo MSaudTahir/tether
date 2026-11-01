@@ -63,13 +63,18 @@ fn fetch_with_icons(adb: &Adb, data_dir: &Path, serial: &str, icon_dir: &Path) -
     run_helper(adb, data_dir, serial, &[], icon_dir)
 }
 
-/// Runs the helper with `args`, saving icons to `icon_dir`.
-fn run_helper(adb: &Adb, data_dir: &Path, serial: &str, args: &[&str], icon_dir: &Path) -> Result<Vec<DeviceApp>> {
+/// Pushes the helper and runs it with `args`; returns its output (which may include OEM log noise).
+pub fn helper(adb: &Adb, data_dir: &Path, serial: &str, args: &[&str]) -> Result<String> {
     let local = data_dir.join("helper.dex");
     fs::write(&local, HELPER)?;
     adb.run(Some(serial), &["push", &local.to_string_lossy(), DEVICE_HELPER], Duration::from_secs(30))?;
     let command = format!("CLASSPATH={DEVICE_HELPER} app_process / tether.Helper {}", args.join(" "));
-    let out = text(&adb.run(Some(serial), &["exec-out", command.trim()], Duration::from_secs(120))?);
+    Ok(text(&adb.run(Some(serial), &["exec-out", command.trim()], Duration::from_secs(120))?))
+}
+
+/// Runs the helper with `args`, saving icons to `icon_dir`.
+fn run_helper(adb: &Adb, data_dir: &Path, serial: &str, args: &[&str], icon_dir: &Path) -> Result<Vec<DeviceApp>> {
+    let out = helper(adb, data_dir, serial, args)?;
 
     fs::create_dir_all(icon_dir)?;
     let mut apps = Vec::new();

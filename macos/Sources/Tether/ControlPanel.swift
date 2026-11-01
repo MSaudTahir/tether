@@ -105,6 +105,34 @@ private struct Meter: View {
     }
 }
 
+/// Moves text between the Mac's and the phone's clipboards.
+struct ClipboardCard: View {
+    @Environment(AppModel.self) private var model
+    let device: Device
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Label("Clipboard", systemImage: "doc.on.clipboard")
+                .foregroundStyle(.secondary)
+            Button("Send Mac Clipboard", systemImage: "arrow.up.doc.on.clipboard") { model.sendClipboard(to: device) }
+                .help("Put the Mac's clipboard text on the phone's clipboard")
+            Button("Copy Phone Clipboard", systemImage: "arrow.down.doc") { model.copyClipboard(from: device) }
+                .help("Copy the phone's clipboard text to the Mac")
+            if let status = model.clipboardStatus[device.serial] {
+                Text(status)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+            Spacer(minLength: 0)
+        }
+        .buttonStyle(.glass)
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular, in: .rect(cornerRadius: 20))
+    }
+}
+
 /// Buttons and switches that act on the phone without opening a window.
 struct ControlsCard: View {
     @Environment(AppModel.self) private var model
