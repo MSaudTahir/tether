@@ -17,6 +17,10 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
+    <!-- Smaller downloads: drop the parts of .NET and WinUI Tether doesn't use, and WinUI's built-in
+         text in languages other than English (Tether's UI is English). -->
+    <PublishTrimmed>true</PublishTrimmed>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Nullable>enable</Nullable>
     <!-- The generated UniFFI bindings use unsafe code. -->
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
