@@ -342,11 +342,43 @@ impl DevicePage {
                 .upcast();
         }
         let list = gtk::Box::new(gtk::Orientation::Vertical, 10);
-        list.append(&gtk::Label::builder().label("Click a notification to tap it on the phone's screen.").xalign(0.0).css_classes(["dim-label"]).build());
+        let buddy = self.model.buddy.borrow().get(&device.serial).copied();
+        if let Some(state) = buddy.filter(|s| *s != BuddyState::Ready) {
+            list.append(&self.buddy_banner(state, device));
+        }
+        let hint = if buddy == Some(BuddyState::Ready) {
+            "Click a notification to open it on the phone's screen."
+        } else {
+            "Click a notification to show it on the phone's screen and tap it there."
+        };
+        list.append(&gtk::Label::builder().label(hint).xalign(0.0).css_classes(["dim-label"]).build());
         for notification in all {
             list.append(&self.notification_card(notification, device));
         }
         adw::Clamp::builder().maximum_size(720).child(&list).build().upcast()
+    }
+
+    /// Offers Tether Buddy, which lets a click run the notification's own action.
+    fn buddy_banner(&self, state: BuddyState, device: &Device) -> gtk::Widget {
+        let installing = self.model.installing_buddy.borrow().contains(&device.serial);
+        let row = adw::ActionRow::builder()
+            .title(if state == BuddyState::Outdated { "Update Tether Buddy" } else { "Open notifications directly with Tether Buddy" })
+            .subtitle("A tiny app with no screens that Tether puts on the phone. With it, clicking a notification does what tapping it does, like opening that chat.")
+            .build();
+        row.add_prefix(&gtk::Image::builder().icon_name("starred-symbolic").pixel_size(24).build());
+        let label = match (installing, state) {
+            (true, _) => "Installing…",
+            (_, BuddyState::Outdated) => "Update",
+            (_, BuddyState::Disabled) => "Turn On",
+            _ => "Install",
+        };
+        let button = gtk::Button::builder().label(label).valign(gtk::Align::Center).css_classes(["suggested-action"]).sensitive(!installing).build();
+        let (model, device) = (self.model.clone(), device.clone());
+        button.connect_clicked(move |_| model.install_buddy(&device));
+        row.add_suffix(&button);
+        let list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).build();
+        list.append(&row);
+        list.upcast()
     }
 
     fn notification_card(&self, notification: PhoneNotification, device: &Device) -> gtk::Widget {
@@ -372,10 +404,10 @@ impl DevicePage {
         if !notification.text.is_empty() {
             content.append(&gtk::Label::builder().label(&notification.text).xalign(0.0).wrap(true).wrap_mode(gtk::pango::WrapMode::WordChar).lines(4).ellipsize(gtk::pango::EllipsizeMode::End).build());
         }
-        let card = gtk::Button::builder().child(&content).css_classes(["card"]).tooltip_text("Show on the phone's screen to tap it").build();
+        let card = gtk::Button::builder().child(&content).css_classes(["card"]).tooltip_text("Open on the phone's screen").build();
         {
-            let (model, device) = (self.model.clone(), device.clone());
-            card.connect_clicked(move |_| model.show_notification(&device));
+            let (model, device, notification) = (self.model.clone(), device.clone(), notification.clone());
+            card.connect_clicked(move |_| model.show_notification(&notification, &device));
         }
         let open = gtk::Button::builder()
             .label("Open App")

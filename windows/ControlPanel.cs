@@ -82,7 +82,11 @@ static class ControlPanel
     {
         if (all.Length == 0) return Dialogs.Note("No notifications. Notifications on the phone show up here.");
         var list = new StackPanel { Spacing = 10, MaxWidth = 720 };
-        list.Children.Add(Dialogs.Note("Click a notification to tap it on the phone's screen."));
+        var ready = Model.Buddy.TryGetValue(device.serial, out var buddy) && buddy == BuddyState.Ready;
+        if (Model.Buddy.ContainsKey(device.serial) && !ready) list.Children.Add(BuddyBanner(buddy, device));
+        list.Children.Add(Dialogs.Note(ready
+            ? "Click a notification to open it on the phone's screen."
+            : "Click a notification to show it on the phone's screen and tap it there."));
         foreach (var notification in all)
         {
             var appName = notification.appName == "" ? notification.package : notification.appName;
@@ -108,11 +112,33 @@ static class ControlPanel
                 Background = Dialogs.Resource<Brush>("CardBackgroundFillColorDefaultBrush"),
                 BorderBrush = Dialogs.Resource<Brush>("CardStrokeColorDefaultBrush"),
             };
-            ToolTipService.SetToolTip(card, "Show on the phone's screen to tap it");
+            ToolTipService.SetToolTip(card, "Open on the phone's screen");
             card.Click += (_, _) => Model.Show(notification, device);
             list.Children.Add(card);
         }
         return list;
+    }
+
+    /// Offers Tether Buddy, which lets a click run the notification's own action.
+    static FrameworkElement BuddyBanner(BuddyState state, Device device)
+    {
+        var text = new StackPanel { Spacing = 2 };
+        text.Children.Add(new TextBlock { Text = state == BuddyState.Outdated ? "Update Tether Buddy" : "Open notifications directly with Tether Buddy", Style = Dialogs.Resource<Style>("BodyStrongTextBlockStyle") });
+        text.Children.Add(Dialogs.Note("A tiny app with no screens that Tether puts on the phone. With it, clicking a notification does what tapping it does, like opening that chat."));
+        var installing = Model.InstallingBuddy.Contains(device.serial);
+        var button = new Microsoft.UI.Xaml.Controls.Button
+        {
+            Content = installing ? "Installing…" : state switch { BuddyState.Outdated => "Update", BuddyState.Disabled => "Turn On", _ => "Install" },
+            Style = Dialogs.Resource<Style>("AccentButtonStyle"), IsEnabled = !installing, VerticalAlignment = VerticalAlignment.Center,
+        };
+        button.Click += (_, _) => Model.InstallBuddy(device);
+        var grid = new Grid { ColumnSpacing = 14 };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.Children.Add(text);
+        Grid.SetColumn(button, 1);
+        grid.Children.Add(button);
+        return Card(grid);
     }
 
     /// Moves text between this PC's and the phone's clipboards.

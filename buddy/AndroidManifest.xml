@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Tether Buddy: an optional companion that gives Tether what adb alone can't (notification actions,
+     live notifications, media sessions). It has no screens; Tether installs and enables it over adb. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="io.github.msaudtahir.tether.buddy"
+    android:versionCode="1"
+    android:versionName="0.1">
+
+    <uses-sdk android:minSdkVersion="21" android:targetSdkVersion="34" />
+
+    <application android:label="Tether Buddy" android:allowBackup="false">
+        <service
+            android:name=".Listener"
+            android:label="Tether Buddy"
+            android:exported="true"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
+        <!-- Only adb's shell may call it; Provider checks the caller. -->
+        <provider
+            android:name=".Provider"
+            android:authorities="io.github.msaudtahir.tether.buddy"
+            android:exported="true" />
+    </application>
+</manifest>

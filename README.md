@@ -9,8 +9,9 @@ A small desktop app for using your Android phone from your computer, built on
 - **Open apps in their own windows**: pick an app from a grid of your phone's apps and it opens on
   a separate virtual display, sized like a desktop window (Small, Medium, Large or the phone's own
   size, portrait or landscape) and resizable. Needs Android 10+.
-- **Notifications**: see the phone's notifications. Click one to show it on the phone's screen
-  (mirrored, with the notification shade open) and tap it there, or open its app.
+- **Notifications**: see the phone's notifications. Click one to open it on the phone's screen,
+  mirrored: with [Tether Buddy](#tether-buddy) it does what tapping it does (e.g. opens that chat);
+  without, the notification shade opens for you to tap it there.
 - **Clipboard**: send your computer's clipboard to the phone, or copy the phone's to the computer.
 - **Control panel**: storage, memory, battery health and temperature, chipset, display and more;
   take screenshots, install APKs (or drop them on the window), press Back/Home/Volume/Power, switch
@@ -73,12 +74,18 @@ choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/Tether.app
 - **Capture Mouse** in app windows turns on the phone's *Force desktop mode* developer option so the
   mouse shows up on the app's display instead of the phone screen. You can turn it off again in
   Developer options. Capture Mouse itself is off each time Tether starts.
-- **Notifications** can't be acted on directly over adb (only the phone can run a notification's
-  action), so clicking one mirrors the phone with the notification shade open for you to tap it.
 - **Copying the phone's clipboard** needs a phone that lets adb read it in the background; Xiaomi
   phones don't. Sending to the phone works everywhere.
 - Some phones (e.g. Xiaomi/MIUI) need **USB debugging (Security settings)** turned on before the
-  mouse and keyboard work.
+  mouse and keyboard work, and **Install via USB** before APKs (or Tether Buddy) can be installed.
+
+### Tether Buddy
+
+Tether works with nothing installed on the phone. **Tether Buddy** is an optional, tiny companion
+app (no screens, no internet access) for the few things adb can't do on its own: Android only lets an
+installed app see a notification's action. With Buddy, clicking a notification runs that action. Tether
+offers to install it in the Notifications section, and turns it on over adb; you can uninstall it like
+any other app.
 
 ## Building from source
 
@@ -149,7 +156,8 @@ One shared core holds all the logic; each platform gets a thin native UI on top 
 | [`macos/`](macos/) | SwiftUI app with Liquid Glass. |
 | [`linux/`](linux/) | GTK4 + libadwaita app in Rust. |
 | [`windows/`](windows/) | WinUI 3 app in C#. |
-| [`helper/`](helper/) | A tiny program that runs on the phone (via `app_process`) to list apps with their icons. The core embeds the built `helper.dex`. |
+| [`helper/`](helper/) | A tiny program that runs on the phone (via `app_process`, nothing installed) to list apps with their icons, use the clipboard, and run notification actions with Buddy's help. The core embeds the built `helper.dex`. |
+| [`buddy/`](buddy/) | Tether Buddy, the optional companion app (a notification listener). The core embeds the built `buddy.apk`. |
 | [`icon/`](icon/) | The app icon and the script that draws it (`swift icon/make_icon.swift icon/icon.png`). |
 | [`python/`](python/) | The original Qt app, until the Windows app works. |
 
@@ -163,10 +171,14 @@ cargo run --example smoke -- /tmp/tether-data   # runs everything against a conn
 
 Core calls block (they run adb, scrcpy or downloads), so the UIs call them off the main thread.
 
-### Helper
+### Helper and Buddy
 
-`helper/helper.dex` is checked in, so you only need this if you change `Helper.java`.
-`helper/build.sh` rebuilds it; it needs a JDK and the Android SDK (`d8`).
+`helper/helper.dex` and `buddy/buddy.apk` are checked in, so you only need this if you change them.
+`helper/build.sh` and `buddy/build.sh` rebuild them; they need a JDK and the Android SDK (`d8`, and
+for Buddy `aapt2`, `zipalign` and `apksigner`). Buddy's signing key isn't in the repo: `build.sh`
+uses `buddy/tether-buddy.keystore` (or `$BUDDY_KEYSTORE`) and makes a new key if there is none. Phones
+only update Buddy when it's signed with the same key, so a Buddy built with another key has to be
+uninstalled from the phone first.
 
 ## License
 

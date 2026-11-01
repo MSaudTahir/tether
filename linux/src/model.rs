@@ -28,6 +28,9 @@ pub struct Model {
     pub loading_apps: RefCell<HashSet<String>>,
     pub app_errors: RefCell<HashMap<String, String>>,
     pub notifications: RefCell<HashMap<String, Vec<PhoneNotification>>>,
+    /// Tether Buddy's state per phone.
+    pub buddy: RefCell<HashMap<String, BuddyState>>,
+    pub installing_buddy: RefCell<HashSet<String>>,
     pub installing: RefCell<HashSet<String>>,
     pub update: RefCell<Option<Release>>,
     pub installing_update: Cell<bool>,
@@ -55,6 +58,8 @@ impl Model {
             loading_apps: Default::default(),
             app_errors: Default::default(),
             notifications: Default::default(),
+            buddy: Default::default(),
+            installing_buddy: Default::default(),
             installing: Default::default(),
             update: Default::default(),
             installing_update: Cell::new(false),
@@ -170,6 +175,7 @@ impl Model {
                 model.load_info(&device.serial).await;
                 model.load_apps(&device.serial, false).await;
                 model.load_notifications(&device.serial).await; // after the apps, which give them names and icons
+                model.check_buddy(&device.serial).await;
             });
         }
     }
@@ -210,13 +216,38 @@ impl Model {
         }
     }
 
-    /// Mirrors the phone with its notification shade pulled down, so the notification can be tapped:
-    /// only the phone can run a notification's action.
-    pub fn show_notification(self: &Rc<Self>, device: &Device) {
-        let (core, serial, model, device) = (self.core.clone(), device.serial.clone(), self.clone(), device.clone());
+    /// Opens a notification on the phone's screen, mirrored: with Tether Buddy its action runs (e.g.
+    /// that chat opens); without, the notification shade is pulled down to tap it.
+    pub fn show_notification(self: &Rc<Self>, notification: &PhoneNotification, device: &Device) {
+        let (core, serial, key, model, device) = (self.core.clone(), device.serial.clone(), notification.key.clone(), self.clone(), device.clone());
         glib::spawn_future_local(async move {
-            let _ = off_main(move || core.show_notification_shade(serial)).await;
+            let _ = off_main(move || core.open_notification(serial, key)).await;
             model.mirror(&device);
+        });
+    }
+
+    async fn check_buddy(&self, serial: &str) {
+        let (core, owned) = (self.core.clone(), serial.to_string());
+        if let Ok(state) = off_main(move || core.buddy_state(owned)).await {
+            if self.buddy.borrow().get(serial) != Some(&state) {
+                self.buddy.borrow_mut().insert(serial.into(), state);
+                self.changed();
+            }
+        }
+    }
+
+    pub fn install_buddy(self: &Rc<Self>, device: &Device) {
+        let (core, serial, model) = (self.core.clone(), device.serial.clone(), self.clone());
+        self.installing_buddy.borrow_mut().insert(serial.clone());
+        self.changed();
+        glib::spawn_future_local(async move {
+            let s = serial.clone();
+            if let Err(e) = off_main(move || core.install_buddy(s)).await {
+                model.alert(&format!("Couldn't install Tether Buddy: {e}\n\nOn Xiaomi phones, turn on Developer options → Install via USB first."));
+            }
+            model.installing_buddy.borrow_mut().remove(&serial);
+            model.check_buddy(&serial).await;
+            model.changed();
         });
     }
 

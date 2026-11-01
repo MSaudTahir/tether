@@ -1,0 +1,4 @@
+build/
+*.idsig
+# The signing key stays out of git: keep a backup. Releases can take it from a CI secret.
+*.keystore

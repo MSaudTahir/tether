@@ -74,6 +74,7 @@ final class AppModel {
         async let apps: Void = loadApps(serial)
         _ = await (info, apps)
         await loadNotifications(serial)  // after the apps, which give them names and icons
+        await checkBuddy(serial)
     }
 
     private func loadNotifications(_ serial: String) async {
@@ -84,13 +85,38 @@ final class AppModel {
         }
     }
 
-    /// Mirrors the phone with its notification shade pulled down, so the notification can be tapped:
-    /// only the phone can run a notification's action.
+    /// Opens a notification on the phone's screen, mirrored: with Tether Buddy its action runs (e.g.
+    /// that chat opens); without, the notification shade is pulled down to tap it.
     func show(_ notification: PhoneNotification, on device: Device) {
         let core = core
         Task {
-            try? await offMain { try core.showNotificationShade(serial: device.serial) }
+            _ = try? await offMain { try core.openNotification(serial: device.serial, key: notification.key) }
             mirror(device)
+        }
+    }
+
+    /// Tether Buddy's state per phone; nil until checked.
+    var buddy: [String: BuddyState] = [:]
+    var installingBuddy: Set<String> = []
+
+    func checkBuddy(_ serial: String) async {
+        let core = core
+        if let state = try? await offMain({ try core.buddyState(serial: serial) }) {
+            buddy[serial] = state
+        }
+    }
+
+    func installBuddy(on device: Device) {
+        let core = core
+        installingBuddy.insert(device.serial)
+        Task {
+            defer { installingBuddy.remove(device.serial) }
+            do {
+                try await offMain { try core.installBuddy(serial: device.serial) }
+            } catch {
+                alert = "Couldn't install Tether Buddy: \(error.localizedDescription)\n\nOn Xiaomi phones, turn on Developer options → Install via USB first."
+            }
+            await checkBuddy(device.serial)
         }
     }
 

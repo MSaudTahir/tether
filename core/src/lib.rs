@@ -4,6 +4,7 @@
 
 mod adb;
 mod apps;
+mod buddy;
 mod notifications;
 mod session;
 mod toolchain;
@@ -107,6 +108,17 @@ pub struct PhoneNotification {
     pub text: String,
     /// Milliseconds since 1970, or 0 if the notification doesn't say.
     pub time: u64,
+}
+
+/// Whether Tether Buddy (the optional companion app) is on the phone and enabled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
+pub enum BuddyState {
+    NotInstalled,
+    /// Installed, but older than the one Tether carries.
+    Outdated,
+    /// Installed, but not allowed to read notifications.
+    Disabled,
+    Ready,
 }
 
 /// Buttons a phone has, for remote control.
@@ -307,10 +319,26 @@ impl Core {
         Ok(list)
     }
 
-    /// Pulls down the phone's notification shade, e.g. in a mirror window, so a notification can be
-    /// tapped: only the phone can run a notification's action (adb can't read or send it).
-    pub fn show_notification_shade(&self, serial: String) -> Result<()> {
-        self.adb()?.shell(&serial, "cmd statusbar expand-notifications")
+    /// Opens a notification: with Tether Buddy, runs its own action on the phone (e.g. opens that
+    /// chat); without, pulls the notification shade down to tap it. Either way the UI then mirrors
+    /// the phone. Returns whether the action ran.
+    pub fn open_notification(&self, serial: String, key: String) -> Result<bool> {
+        let adb = self.adb()?;
+        if buddy::open_notification(&adb, &self.data_dir, &serial, &key).unwrap_or(false) {
+            return Ok(true);
+        }
+        adb.shell(&serial, "cmd statusbar expand-notifications")?;
+        Ok(false)
+    }
+
+    pub fn buddy_state(&self, serial: String) -> Result<BuddyState> {
+        buddy::state(&self.adb()?, &serial)
+    }
+
+    /// Installs (or updates) Tether Buddy and enables it. Some phones ask to confirm on screen, and
+    /// Xiaomi phones need "Install via USB" turned on in Developer options.
+    pub fn install_buddy(&self, serial: String) -> Result<()> {
+        buddy::install(&self.adb()?, &self.data_dir, &serial)
     }
 
     /// The phone's clipboard text; None if it's empty or the phone doesn't let adb read it in the

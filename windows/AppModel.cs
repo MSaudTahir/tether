@@ -105,6 +105,7 @@ sealed class AppModel
         if (Devices.FirstOrDefault(d => d.serial == serial)?.state != "device") return;
         await Task.WhenAll(LoadInfo(serial), LoadApps(serial, force: false));
         await LoadNotifications(serial); // after the apps, which give them names and icons
+        await CheckBuddy(serial);
     }
 
     async Task LoadNotifications(string serial)
@@ -120,13 +121,33 @@ sealed class AppModel
         catch { }
     }
 
-    /// Mirrors the phone with its notification shade pulled down, so the notification can be tapped:
-    /// only the phone can run a notification's action.
+    /// Opens a notification on the phone's screen, mirrored: with Tether Buddy its action runs (e.g.
+    /// that chat opens); without, the notification shade is pulled down to tap it.
     public async void Show(PhoneNotification notification, Device device)
     {
-        try { await Task.Run(() => Core.ShowNotificationShade(device.serial)); }
+        try { await Task.Run(() => Core.OpenNotification(device.serial, notification.key)); }
         catch { }
         Mirror(device);
+    }
+
+    /// Tether Buddy's state per phone.
+    public readonly Dictionary<string, BuddyState> Buddy = [];
+    public readonly HashSet<string> InstallingBuddy = [];
+
+    async Task CheckBuddy(string serial)
+    {
+        try { Buddy[serial] = await Task.Run(() => Core.BuddyState(serial)); Notify(); }
+        catch { }
+    }
+
+    public async void InstallBuddy(Device device)
+    {
+        InstallingBuddy.Add(device.serial);
+        Notify();
+        try { await Task.Run(() => Core.InstallBuddy(device.serial)); }
+        catch (Exception e) { Alert?.Invoke($"Couldn't install Tether Buddy: {e.Message}\n\nOn Xiaomi phones, turn on Developer options → Install via USB first."); }
+        InstallingBuddy.Remove(device.serial);
+        await CheckBuddy(device.serial);
     }
 
     /// Opens the notification's app: in its own window if the phone supports that, else mirrored.

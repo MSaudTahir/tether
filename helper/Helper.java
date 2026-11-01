@@ -1,6 +1,8 @@
 package tether;
 
+import android.app.ActivityOptions;
 import android.app.Application;
+import android.app.PendingIntent;
 import android.content.ClipData;
 import android.content.Context;
 import android.content.ContextWrapper;
@@ -9,11 +11,15 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.content.res.Resources;
+import android.os.Binder;
+import android.os.Build;
+import android.os.Bundle;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.Process;
 import android.util.Base64;
 import android.util.DisplayMetrics;
 
@@ -33,11 +39,17 @@ import java.util.Set;
  * notifications but can't be launched); unknown packages are skipped.
  * With "clipboard", prints the clipboard's text as base64 (empty if there's none).
  * With "clipboard BASE64", sets the clipboard to that text.
+ * With "notification KEY", runs the notification's action (from Tether Buddy) as the shell;
+ * prints "ok", "no buddy" (not installed or not enabled) or "gone".
  */
 public final class Helper {
     private static final int ICON_SIZE = 96;
 
     public static void main(String[] args) throws Exception {
+        if (args.length > 1 && args[0].equals("notification")) {
+            openNotification(args[1]);
+            return;
+        }
         if (args.length > 0 && args[0].equals("clipboard")) {
             clipboard(args.length > 1 ? args[1] : null);
             return;
@@ -94,6 +106,72 @@ public final class Helper {
     }
 
     private static final String SHELL = "com.android.shell";
+    private static final String BUDDY = "io.github.msaudtahir.tether.buddy";
+
+    /**
+     * Calls Tether Buddy's provider the way the `content` shell command does: this process isn't a
+     * registered app, so a ContentResolver would get it killed. The binder methods vary by version.
+     */
+    private static Bundle callBuddy(String method, String arg) throws Exception {
+        Object am = Class.forName("android.app.ActivityManager").getMethod("getService").invoke(null);
+        IBinder token = new Binder();
+        Object holder;
+        try {
+            holder = am.getClass().getMethod("getContentProviderExternal", String.class, int.class, IBinder.class, String.class)
+                    .invoke(am, BUDDY, 0, token, "tether");
+        } catch (NoSuchMethodException e) {
+            holder = am.getClass().getMethod("getContentProviderExternal", String.class, int.class, IBinder.class)
+                    .invoke(am, BUDDY, 0, token);
+        }
+        if (holder == null) {
+            return null; // not installed
+        }
+        Object provider = holder.getClass().getField("provider").get(holder);
+        try {
+            if (Build.VERSION.SDK_INT >= 31) {
+                Class<?> source = Class.forName("android.content.AttributionSource");
+                Object attribution = source.getConstructor(int.class, String.class, String.class).newInstance(Process.myUid(), SHELL, null);
+                return (Bundle) provider.getClass().getMethod("call", source, String.class, String.class, String.class, Bundle.class)
+                        .invoke(provider, attribution, BUDDY, method, arg, null);
+            } else if (Build.VERSION.SDK_INT == 30) {
+                return (Bundle) provider.getClass().getMethod("call", String.class, String.class, String.class, String.class, String.class, Bundle.class)
+                        .invoke(provider, SHELL, null, BUDDY, method, arg, null);
+            } else if (Build.VERSION.SDK_INT == 29) {
+                return (Bundle) provider.getClass().getMethod("call", String.class, String.class, String.class, String.class, Bundle.class)
+                        .invoke(provider, SHELL, BUDDY, method, arg, null);
+            }
+            return (Bundle) provider.getClass().getMethod("call", String.class, String.class, String.class, Bundle.class)
+                    .invoke(provider, SHELL, method, arg, null);
+        } finally {
+            am.getClass().getMethod("removeContentProviderExternal", String.class, IBinder.class).invoke(am, BUDDY, token);
+        }
+    }
+
+    /**
+     * Gets the notification's PendingIntent from Tether Buddy and sends it from here, as the shell,
+     * which may start activities from the background (Buddy, running in the background, may not).
+     */
+    private static void openNotification(String key) throws Exception {
+        Context shell = systemContext();
+        Bundle result = callBuddy("intent", key);
+        if (result == null || !result.getBoolean("listening")) {
+            System.out.println("no buddy");
+            return;
+        }
+        PendingIntent intent = result.getParcelable("intent");
+        if (intent == null) {
+            System.out.println("gone");
+            return;
+        }
+        ActivityOptions options = ActivityOptions.makeBasic();
+        try {
+            // Android 14+: the sender has to opt in to lending its background-start privilege.
+            ActivityOptions.class.getMethod("setPendingIntentBackgroundActivityStartMode", int.class).invoke(options, 1);
+        } catch (NoSuchMethodException ignored) {
+        }
+        intent.send(shell, 0, null, null, null, null, options.toBundle());
+        System.out.println("ok");
+    }
 
     /**
      * Reads or sets the clipboard through the clipboard service as the shell, which may read it in
