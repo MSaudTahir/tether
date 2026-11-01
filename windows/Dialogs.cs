@@ -148,7 +148,26 @@ static class Dialogs
         Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 12, Foreground = Resource<Microsoft.UI.Xaml.Media.Brush>("TextFillColorSecondaryBrush"),
     };
 
-    public static T Resource<T>(string key) => (T)Application.Current.Resources[key];
+    /// A WinUI style or brush by name. Looking it up with Application.Current.Resources[key] from C#
+    /// only searches the app's own dictionary, not the merged and theme ones WinUI's live in.
+    public static T Resource<T>(string key) =>
+        Find(Application.Current.Resources, key) is T value ? value : throw new KeyNotFoundException($"No resource named {key}");
+
+    static object? Find(ResourceDictionary dictionary, string key)
+    {
+        if (dictionary.ContainsKey(key)) return dictionary[key];
+        var theme = Application.Current.RequestedTheme == ApplicationTheme.Dark ? "Dark" : "Light";
+        foreach (var name in new[] { theme, "Default" })
+        {
+            if (dictionary.ThemeDictionaries.ContainsKey(name) && dictionary.ThemeDictionaries[name] is ResourceDictionary themed && Find(themed, key) is { } found)
+                return found;
+        }
+        foreach (var merged in dictionary.MergedDictionaries)
+        {
+            if (Find(merged, key) is { } found) return found;
+        }
+        return null;
+    }
 }
 
 /// Lets the user pick which adb to use; saves immediately.

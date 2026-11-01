@@ -250,8 +250,8 @@ public sealed partial class MainWindow : Window
     }
 
     static string Capitalized(string text) => text == "" ? text : char.ToUpper(text[0]) + text[1..];
-    static Style Style(string key) => (Style)Application.Current.Resources[key];
-    static Brush Brush(string key) => (Brush)Application.Current.Resources[key];
+    static Style Style(string key) => Dialogs.Resource<Style>(key);
+    static Brush Brush(string key) => Dialogs.Resource<Brush>(key);
 
     // --- Events --------------------------------------------------------------
 

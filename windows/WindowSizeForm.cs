@@ -111,6 +111,6 @@ sealed class WindowSizeForm : StackPanel
     void Footer(bool error)
     {
         footer.Text = error ? "Use WIDTHxHEIGHT/DPI, e.g. 1600x1000/240." : "Portrait suits most phone apps. Smaller text fits more on screen.";
-        footer.Foreground = (Microsoft.UI.Xaml.Media.Brush)Application.Current.Resources[error ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush"];
+        footer.Foreground = Dialogs.Resource<Microsoft.UI.Xaml.Media.Brush>(error ? "SystemFillColorCriticalBrush" : "TextFillColorSecondaryBrush");
     }
 }
