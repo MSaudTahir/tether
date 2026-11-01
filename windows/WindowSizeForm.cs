@@ -1,7 +1,6 @@
 using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
-using Microsoft.UI.Xaml.Input;
 using uniffi.tether_core;
 
 namespace Tether;
@@ -87,7 +86,7 @@ sealed class WindowSizeForm : StackPanel
         textSize.SelectedIndex = (int)choice.textSize;
         textSize.IsEnabled = choice.preset != null && !sameAsPhone;
         resizable.IsChecked = model.Config.resizableWindows;
-        if (FocusManager.GetFocusedElement(XamlRoot) != custom) custom.Text = model.Config.windowSize;
+        if (custom.FocusState == FocusState.Unfocused) custom.Text = model.Config.windowSize; // not while typing
         rendering = false;
     }
 
