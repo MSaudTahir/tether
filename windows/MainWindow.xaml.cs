@@ -26,6 +26,7 @@ public sealed partial class MainWindow : Window
     {
         InitializeComponent();
         SetupHost.Content = Setup;
+        SectionList.SelectedIndex = 0; // Overview (selecting it in XAML fires before the panels exist)
         ExtendsContentIntoTitleBar = true;
         SetTitleBar(TitleBar);
         AppWindow.SetIcon("Tether.ico");
@@ -282,6 +283,7 @@ public sealed partial class MainWindow : Window
     /// Shows the section selected in the sidebar.
     void SectionList_SelectionChanged(object sender, SelectionChangedEventArgs e)
     {
+        if (OverviewPanel == null) return; // still loading
         var section = (SectionList.SelectedItem as ListViewItem)?.Tag as string ?? "overview";
         OverviewPanel.Visibility = section == "overview" ? Visibility.Visible : Visibility.Collapsed;
         AppsPanel.Visibility = section == "apps" ? Visibility.Visible : Visibility.Collapsed;

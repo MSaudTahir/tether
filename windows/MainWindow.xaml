@@ -74,7 +74,7 @@
                     </StackPanel>
                 </DropDownButton>
                 <ListView x:Name="SectionList" SelectionMode="Single" SelectionChanged="SectionList_SelectionChanged">
-                    <ListViewItem Tag="overview" IsSelected="True">
+                    <ListViewItem Tag="overview">
                         <StackPanel Orientation="Horizontal" Spacing="12"><FontIcon Glyph="&#xE8EA;" FontSize="16" /><TextBlock Text="Overview" /></StackPanel>
                     </ListViewItem>
                     <ListViewItem Tag="apps">
