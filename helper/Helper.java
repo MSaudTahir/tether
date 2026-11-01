@@ -15,6 +15,11 @@ import android.os.Binder;
 import android.os.Build;
 import android.os.Bundle;
 import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.graphics.Matrix;
+import android.media.ExifInterface;
+import android.media.ThumbnailUtils;
+import android.provider.MediaStore;
 import android.graphics.Canvas;
 import android.graphics.drawable.Drawable;
 import android.os.IBinder;
@@ -39,6 +44,7 @@ import java.util.Set;
  * notifications but can't be launched); unknown packages are skipped.
  * With "clipboard", prints the clipboard's text as base64 (empty if there's none).
  * With "clipboard BASE64", sets the clipboard to that text.
+ * With "thumbs PATH...", prints "path \t base64 JPEG" thumbnails of those photos and videos.
  * With "notification KEY", runs the notification's action (from Tether Buddy) as the shell;
  * prints "ok", "no buddy" (not installed or not enabled) or "gone".
  */
@@ -46,6 +52,15 @@ public final class Helper {
     private static final int ICON_SIZE = 96;
 
     public static void main(String[] args) throws Exception {
+        if (args.length > 0 && args[0].equals("thumbs")) {
+            systemContext(); // image decoding looks up the current app (at least on MIUI)
+            PrintStream out = new PrintStream(System.out, false, "UTF-8");
+            for (int i = 1; i < args.length; i++) {
+                out.println(args[i] + "\t" + thumbnail(args[i]));
+            }
+            out.flush();
+            return;
+        }
         if (args.length > 1 && args[0].equals("notification")) {
             openNotification(args[1]);
             return;
@@ -102,6 +117,53 @@ public final class Helper {
         } catch (Exception e) {
             System.err.println(app.packageName + ": " + e);
             return ""; // keep the app, just without an icon
+        }
+    }
+
+    private static final int THUMB_SIZE = 320;
+
+    /** A JPEG thumbnail (longest side THUMB_SIZE, turned upright) as base64, or "" if it can't be made. */
+    private static String thumbnail(String path) {
+        try {
+            Bitmap bitmap;
+            String lower = path.toLowerCase();
+            if (lower.endsWith(".mp4") || lower.endsWith(".mkv") || lower.endsWith(".webm") || lower.endsWith(".3gp") || lower.endsWith(".mov")) {
+                bitmap = ThumbnailUtils.createVideoThumbnail(path, MediaStore.Images.Thumbnails.MINI_KIND);
+            } else {
+                BitmapFactory.Options bounds = new BitmapFactory.Options();
+                bounds.inJustDecodeBounds = true;
+                BitmapFactory.decodeFile(path, bounds);
+                BitmapFactory.Options options = new BitmapFactory.Options();
+                options.inSampleSize = 1;
+                while (Math.max(bounds.outWidth, bounds.outHeight) / (options.inSampleSize * 2) >= THUMB_SIZE) {
+                    options.inSampleSize *= 2;
+                }
+                bitmap = BitmapFactory.decodeFile(path, options);
+                if (bitmap != null) {
+                    int rotation = new ExifInterface(path).getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+                    int degrees = rotation == ExifInterface.ORIENTATION_ROTATE_90 ? 90
+                            : rotation == ExifInterface.ORIENTATION_ROTATE_180 ? 180
+                            : rotation == ExifInterface.ORIENTATION_ROTATE_270 ? 270 : 0;
+                    if (degrees != 0) {
+                        Matrix matrix = new Matrix();
+                        matrix.postRotate(degrees);
+                        bitmap = Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+                    }
+                }
+            }
+            if (bitmap == null) {
+                return "";
+            }
+            float scale = Math.min(1f, THUMB_SIZE / (float) Math.max(bitmap.getWidth(), bitmap.getHeight()));
+            if (scale < 1f) {
+                bitmap = Bitmap.createScaledBitmap(bitmap, Math.round(bitmap.getWidth() * scale), Math.round(bitmap.getHeight() * scale), true);
+            }
+            ByteArrayOutputStream jpeg = new ByteArrayOutputStream();
+            bitmap.compress(Bitmap.CompressFormat.JPEG, 80, jpeg);
+            return Base64.encodeToString(jpeg.toByteArray(), Base64.NO_WRAP);
+        } catch (Exception e) {
+            System.err.println(path + ": " + e);
+            return "";
         }
     }
 

@@ -5,7 +5,8 @@
 A small desktop app for using your Android phone from your computer, built on
 [scrcpy](https://github.com/Genymobile/scrcpy).
 
-- **Mirror** the phone's screen in a window, and control it with your mouse and keyboard.
+- **Mirror** the phone's screen in a window (one per phone), and control it with your mouse and
+  keyboard; the phone's audio plays on the computer (Android 11+).
 - **Open apps in their own windows**: pick an app from a grid of your phone's apps and it opens on
   a separate virtual display, sized like a desktop window (Small, Medium, Large or the phone's own
   size, portrait or landscape) and resizable. Needs Android 10+.
@@ -17,9 +18,12 @@ A small desktop app for using your Android phone from your computer, built on
   and make folders.
 - **Control panel**: storage, memory, battery health and temperature, chipset, display and more;
   take screenshots, install APKs (or drop them on the window), press Back/Home/Volume/Power, switch
-  dark mode or "stay awake", and restart the phone.
+  dark mode, Do Not Disturb or "stay awake", open a link on the phone, and restart it.
+- **App actions**: right-click an app to see its info on the phone, force stop it, clear its data or
+  uninstall it.
+- **Photos**: the newest photos and videos from the camera and screenshots; click to open, or download.
 - **USB or Wi-Fi**: pair over Wi-Fi with a pairing code (Android 11+), or switch a USB-connected
-  phone to Wi-Fi with one click.
+  phone to Wi-Fi with one click; Tether reconnects to it next time.
 - **Several phones** at once.
 - **Capture Mouse** for games: the mouse acts as a real mouse on the phone (relative movement,
   pointer capture). Press Left Alt (or ⌘ / Super) to release it.
@@ -30,7 +34,7 @@ A small desktop app for using your Android phone from your computer, built on
 |---|---|---|
 | macOS 26+ | SwiftUI with Liquid Glass | ✅ Works |
 | Linux (GNOME 46+, e.g. Fedora 40+, Ubuntu 24.04+) | GTK4 + libadwaita | ✅ Works (tested on Fedora 44) |
-| Windows 10/11 (x64, ARM64) | WinUI 3 | 🚧 Written, not built yet |
+| Windows 10/11 (x64, ARM64) | WinUI 3 | 🚧 Written up to Files; not built yet |
 
 [`python/`](python/) has the original cross-platform Qt version, kept until the Windows app works.
 
@@ -58,7 +62,7 @@ choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/Tether.app
    press **Go Wireless** while connected by USB.
 3. The sidebar shows the phone (switch phones or pair one from its menu) and its sections:
    **Overview** (status, controls and details), **Apps** (click one to open it in its own window),
-   **Notifications** and **Files**. **Mirror Screen** in the toolbar shows the
+   **Notifications**, **Photos** and **Files**. **Mirror Screen** in the toolbar shows the
    whole screen. **Refresh** reloads the app list; it's cached until then.
 
 | | macOS | Linux / Windows |
@@ -73,6 +77,8 @@ choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/Tether.app
   phone apps.
 - **Resizable** app windows relayout the app as you resize them. They aren't as sharp on Retina /
   HiDPI screens (a scrcpy limitation); turn Resizable off for the sharpest picture.
+- **Settings** can turn the phone's audio off, or turn its screen off while it's shown (private on
+  your desk, and it saves battery). Controls a phone's Android version can't do are disabled.
 - **Capture Mouse** in app windows turns on the phone's *Force desktop mode* developer option so the
   mouse shows up on the app's display instead of the phone screen. You can turn it off again in
   Developer options. Capture Mouse itself is off each time Tether starts.

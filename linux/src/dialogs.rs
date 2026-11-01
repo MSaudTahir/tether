@@ -223,6 +223,24 @@ pub fn show_settings(model: &Rc<Model>, window: &impl IsA<gtk::Widget>) {
     mouse.add(&capture);
     page.add(&mouse);
 
+    let showing = adw::PreferencesGroup::builder()
+        .title("Mirroring and App Windows")
+        .description("Audio needs Android 11 or newer. With the screen off, the phone stays private on your desk and saves battery; it still runs for Tether.")
+        .build();
+    let audio = adw::SwitchRow::builder().title("Play phone audio on this computer").active(model.config.borrow().forward_audio).build();
+    {
+        let model = model.clone();
+        audio.connect_active_notify(move |row| model.update_config(|c| c.forward_audio = row.is_active()));
+    }
+    let screen_off = adw::SwitchRow::builder().title("Turn the phone's screen off while showing it").active(model.config.borrow().screen_off).build();
+    {
+        let model = model.clone();
+        screen_off.connect_active_notify(move |row| model.update_config(|c| c.screen_off = row.is_active()));
+    }
+    showing.add(&audio);
+    showing.add(&screen_off);
+    page.add(&showing);
+
     let scrcpy = adw::PreferencesGroup::builder().title("scrcpy").build();
     let in_use = adw::ActionRow::builder().title("In use").subtitle(model.core.scrcpy_path().unwrap_or("Not found".into())).subtitle_selectable(true).build();
     scrcpy.add(&in_use);

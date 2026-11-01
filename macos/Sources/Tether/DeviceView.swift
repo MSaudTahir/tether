@@ -10,6 +10,7 @@ enum DeviceTab: String, CaseIterable {
     case overview = "Overview"
     case apps = "Apps"
     case notifications = "Notifications"
+    case photos = "Photos"
     case files = "Files"
 
     var systemImage: String {
@@ -17,6 +18,7 @@ enum DeviceTab: String, CaseIterable {
         case .overview: "smartphone"
         case .apps: "square.grid.2x2"
         case .notifications: "bell"
+        case .photos: "photo.on.rectangle"
         case .files: "folder"
         }
     }
@@ -54,6 +56,8 @@ struct DeviceView: View {
                         AppsSection(device: device, search: search)
                     case .notifications:
                         NotificationsList(device: device)
+                    case .photos:
+                        PhotosGrid(device: device)
                     case .files:
                         EmptyView()
                     }
@@ -167,11 +171,43 @@ struct AppsSection: View {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 104), spacing: 8)], spacing: 8) {
                     ForEach(apps, id: \.package) { app in
                         AppTile(app: app) { model.open(app, on: device) }
+                            .contextMenu { AppMenu(app: app, device: device, supported: supported) }
                     }
                 }
                 .disabled(!supported)
             }
         }
+    }
+}
+
+/// Right-click actions for an app.
+struct AppMenu: View {
+    @Environment(AppModel.self) private var model
+    let app: DeviceApp
+    let device: Device
+    let supported: Bool
+    var body: some View {
+        Button("Open in Window") { model.open(app, on: device) }
+            .disabled(!supported)
+        Button("App Info on Phone") { model.showAppInfo(app, on: device) }
+        Divider()
+        Button("Force Stop") { model.forceStop(app, on: device) }
+        Button("Clear Data…") { confirm("clear") }
+        if !app.system {
+            Button("Uninstall…", role: .destructive) { confirm("uninstall") }
+        }
+    }
+
+    private func confirm(_ action: String) {
+        let alert = NSAlert()
+        alert.messageText = action == "clear" ? "Clear \(app.name)'s data?" : "Uninstall \(app.name)?"
+        alert.informativeText = action == "clear"
+            ? "Its files, settings and sign-ins are deleted from the phone, like \"Clear storage\" in Settings."
+            : "It's removed from the phone along with its data."
+        alert.addButton(withTitle: action == "clear" ? "Clear Data" : "Uninstall").hasDestructiveAction = true
+        alert.addButton(withTitle: "Cancel")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        if action == "clear" { model.clearData(app, on: device) } else { model.uninstall(app, on: device) }
     }
 }
 

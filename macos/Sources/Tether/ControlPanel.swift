@@ -109,6 +109,7 @@ private struct Meter: View {
 struct ClipboardCard: View {
     @Environment(AppModel.self) private var model
     let device: Device
+    @State private var link: String?
 
     var body: some View {
         HStack(spacing: 10) {
@@ -118,6 +119,8 @@ struct ClipboardCard: View {
                 .help("Put the Mac's clipboard text on the phone's clipboard")
             Button("Copy Phone Clipboard", systemImage: "arrow.down.doc") { model.copyClipboard(from: device) }
                 .help("Copy the phone's clipboard text to the Mac")
+            Button("Open Link on Phone…", systemImage: "safari") { link = NSPasteboard.general.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+                .help("Open a web link on the phone")
             if let status = model.clipboardStatus[device.serial] {
                 Text(status)
                     .font(.callout)
@@ -130,6 +133,16 @@ struct ClipboardCard: View {
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular, in: .rect(cornerRadius: 20))
+        .alert("Open Link on Phone", isPresented: .constant(link != nil)) {
+            TextField("https://…", text: Binding(get: { link ?? "" }, set: { link = $0 }))
+            Button("Open") {
+                if let text = link?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                    model.openLink(text.contains("://") ? text : "https://\(text)", on: device)
+                }
+                link = nil
+            }
+            Button("Cancel", role: .cancel) { link = nil }
+        }
     }
 }
 
@@ -211,9 +224,17 @@ struct ControlsCard: View {
     }
 
     @ViewBuilder private var toggles: some View {
+        let can = deviceCapabilities(sdk: info.sdk)
         Toggle("Dark Mode", systemImage: "moon", isOn: Binding(
             get: { info.darkMode }, set: { model.setDarkMode($0, on: device) }
         ))
+        .disabled(!can.darkMode)
+        .help(can.darkMode ? "Switch the phone's dark theme" : "Needs Android 10 or newer")
+        Toggle("Do Not Disturb", systemImage: "moon.zzz", isOn: Binding(
+            get: { info.doNotDisturb }, set: { model.setDoNotDisturb($0, on: device) }
+        ))
+        .disabled(!can.doNotDisturb)
+        .help(can.doNotDisturb ? "Silence the phone's notifications and calls" : "Needs Android 9 or newer")
         Toggle("Stay Awake", systemImage: "cup.and.heat.waves", isOn: Binding(
             get: { info.stayAwake }, set: { model.setStayAwake($0, on: device) }
         ))

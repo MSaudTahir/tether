@@ -7,6 +7,7 @@ mod apps;
 mod buddy;
 mod files;
 mod notifications;
+mod photos;
 mod session;
 mod toolchain;
 mod util;
@@ -20,6 +21,7 @@ use adb::Adb;
 use serde::{Deserialize, Serialize};
 pub use session::Session;
 use toolchain::Toolchain;
+use util::text;
 pub use window::*;
 
 uniffi::setup_scaffolding!();
@@ -94,6 +96,27 @@ pub struct DeviceInfo {
     /// Screen stays on while charging (developer option).
     pub stay_awake: bool,
     pub screen_on: bool,
+    pub do_not_disturb: bool,
+}
+
+/// What a phone's Android version supports, so UIs can hide or explain what won't work.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Record)]
+pub struct Capabilities {
+    /// Apps in their own windows (virtual displays): Android 10.
+    pub app_windows: bool,
+    /// Phone audio on the computer: Android 11.
+    pub audio: bool,
+    /// Pairing over Wi-Fi with a code: Android 11.
+    pub wifi_pairing: bool,
+    /// System dark theme: Android 10.
+    pub dark_mode: bool,
+    /// Do Not Disturb from adb: Android 9.
+    pub do_not_disturb: bool,
+}
+
+#[uniffi::export]
+pub fn device_capabilities(sdk: u32) -> Capabilities {
+    Capabilities { app_windows: sdk >= 29, audio: sdk >= 30, wifi_pairing: sdk >= 30, dark_mode: sdk >= 29, do_not_disturb: sdk >= 28 }
 }
 
 /// A notification showing on the phone.
@@ -121,6 +144,13 @@ pub struct PhoneFile {
     pub size: u64,
     /// Seconds since 1970.
     pub modified: i64,
+}
+
+/// A recent photo or video, with a small JPEG thumbnail if one could be made.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct Photo {
+    pub file: PhoneFile,
+    pub thumbnail_path: Option<String>,
 }
 
 /// Where the phone's own files (Download, DCIM, Pictures, ...) live.
@@ -190,12 +220,18 @@ pub struct Config {
     pub window_size: String,
     /// Resizing an app window resizes its display, so the app relayouts (window_size is the starting size).
     pub resizable_windows: bool,
+    /// Play the phone's audio on the computer (Android 11+).
+    pub forward_audio: bool,
+    /// Turn the phone's screen off while it's mirrored or shows app windows (it stays on for them).
+    pub screen_off: bool,
     /// Send the mouse as a real (UHID) mouse, captured in relative mode: for games and apps that use
     /// pointer capture (Android 8+). Left Alt or Cmd gives the mouse back to the computer.
     /// App windows turn on the device's "Force desktop mode" so the mouse lands on their display.
     /// Off at every launch.
     pub capture_mouse: bool,
     pub setup_done: bool,
+    /// Wi-Fi addresses (ip:port) to reconnect to at launch.
+    pub known_addresses: Vec<String>,
 }
 
 impl Default for Config {
@@ -205,8 +241,11 @@ impl Default for Config {
             scrcpy: String::new(),
             window_size: "1280x720/160".into(),
             resizable_windows: true,
+            forward_audio: true,
+            screen_off: false,
             capture_mouse: false,
             setup_done: false,
+            known_addresses: Vec::new(),
         }
     }
 }
@@ -220,6 +259,8 @@ pub struct Core {
     tools: Toolchain,
     config: Mutex<Config>,
     sessions: Mutex<Vec<Arc<Session>>>,
+    /// The open mirror window per phone (serial).
+    mirrors: Mutex<Vec<(String, Arc<Session>)>>,
 }
 
 #[uniffi::export]
@@ -239,6 +280,7 @@ impl Core {
             data_dir,
             config: Mutex::new(config),
             sessions: Mutex::new(Vec::new()),
+            mirrors: Mutex::new(Vec::new()),
         })
     }
 
@@ -364,6 +406,12 @@ impl Core {
         files::list(&self.adb()?, &serial, &path, hidden)
     }
 
+    /// The newest photos and videos from the camera and screenshots, newest first, with thumbnails
+    /// (made on the phone the first time, then cached).
+    pub fn recent_photos(&self, serial: String, count: u32) -> Result<Vec<Photo>> {
+        photos::recent(&self.adb()?, &self.data_dir, &serial, count as usize)
+    }
+
     /// Copies a file or folder from the phone into `local_dir` (as "name 2" etc. if taken); returns
     /// the copy's path.
     pub fn download_file(&self, serial: String, path: String, local_dir: String) -> Result<String> {
@@ -416,12 +464,63 @@ impl Core {
     }
 
     pub fn connect(&self, address: String) -> Result<()> {
-        self.adb()?.connect(&address)
+        self.adb()?.connect(&address)?;
+        self.remember_address(&address);
+        Ok(())
     }
 
-    /// Switches a USB device to Wi-Fi. Returns the new address.
+    /// Switches a USB device to Wi-Fi. Returns the new address, which is remembered for reconnecting.
     pub fn go_wireless(&self, serial: String) -> Result<String> {
-        self.adb()?.go_wireless(&serial)
+        let address = self.adb()?.go_wireless(&serial)?;
+        self.remember_address(&address);
+        Ok(address)
+    }
+
+    /// Reconnects to phones connected over Wi-Fi before (by Go Wireless or Connect) that aren't
+    /// connected now. Phones paired with a code reconnect by themselves.
+    pub fn reconnect(&self) -> Result<()> {
+        let adb = self.adb()?;
+        let connected: Vec<String> = adb.devices()?.into_iter().map(|d| d.serial).collect();
+        for address in self.config().known_addresses {
+            if !connected.contains(&address) {
+                let _ = adb.connect(&address); // the phone may be away; that's fine
+            }
+        }
+        Ok(())
+    }
+
+    // --- apps ----------------------------------------------------------------
+
+    /// Opens the app's page in the phone's Settings (e.g. to change its permissions).
+    pub fn show_app_info(&self, serial: String, package: String) -> Result<()> {
+        check_package(&package)?;
+        self.adb()?.shell(&serial, &format!("am start -a android.settings.APPLICATION_DETAILS_SETTINGS -d package:{package} >/dev/null"))
+    }
+
+    pub fn force_stop(&self, serial: String, package: String) -> Result<()> {
+        check_package(&package)?;
+        self.adb()?.shell(&serial, &format!("am force-stop {package}"))
+    }
+
+    /// Deletes the app's data, like "Clear storage" in Settings.
+    pub fn clear_app_data(&self, serial: String, package: String) -> Result<()> {
+        check_package(&package)?;
+        self.adb()?.shell(&serial, &format!("pm clear {package}"))
+    }
+
+    pub fn uninstall_app(&self, serial: String, package: String) -> Result<()> {
+        check_package(&package)?;
+        let out = text(&self.adb()?.run(Some(&serial), &["uninstall", &package], std::time::Duration::from_secs(60))?);
+        if !out.contains("Success") {
+            return Err(CoreError::Failed(format!("Couldn't uninstall: {}", out.trim())));
+        }
+        Ok(())
+    }
+
+    /// Opens a web link (or any URI) on the phone.
+    pub fn open_link(&self, serial: String, link: String) -> Result<()> {
+        let quoted = format!("'{}'", link.trim().replace('\'', r"'\''"));
+        self.adb()?.shell(&serial, &format!("am start -a android.intent.action.VIEW -d {quoted} >/dev/null"))
     }
 
     // --- control -----------------------------------------------------------
@@ -449,6 +548,10 @@ impl Core {
         self.adb()?.shell(&serial, &format!("settings put global stay_on_while_plugged_in {}", if on { 7 } else { 0 }))
     }
 
+    pub fn set_do_not_disturb(&self, serial: String, on: bool) -> Result<()> {
+        self.adb()?.shell(&serial, &format!("cmd notification set_dnd {}", if on { "on" } else { "off" }))
+    }
+
     pub fn reboot(&self, serial: String, mode: RebootMode) -> Result<()> {
         self.adb()?.reboot(&serial, mode)
     }
@@ -456,8 +559,17 @@ impl Core {
     // --- scrcpy sessions --------------------------------------------------
 
     /// Mirrors the device's screen in a scrcpy window.
+    /// A phone has at most one mirror window: if it's open already, that window is returned (to bring
+    /// to the front) instead of a new one. App windows can be as many as you like.
     pub fn mirror(&self, serial: String, title: String) -> Result<Arc<Session>> {
-        self.start_scrcpy(vec!["-s".into(), serial, format!("--window-title={title}")])
+        if let Some(open) = self.mirrors.lock().unwrap().iter().find(|(s, session)| *s == serial && !session.finished()) {
+            return Ok(open.1.clone());
+        }
+        let session = self.start_scrcpy(vec!["-s".into(), serial.clone(), format!("--window-title={title}")])?;
+        let mut mirrors = self.mirrors.lock().unwrap();
+        mirrors.retain(|(_, s)| !s.finished());
+        mirrors.push((serial, session.clone()));
+        Ok(session)
     }
 
     /// Opens an app in its own window, on a new virtual display sized by the window_size config and
@@ -500,6 +612,16 @@ impl Core {
 }
 
 impl Core {
+    fn remember_address(&self, address: &str) {
+        let mut config = self.config();
+        // Newest last; Wireless debugging changes its port each time, so keep only the last few.
+        config.known_addresses.retain(|a| a != address);
+        config.known_addresses.push(address.to_string());
+        let excess = config.known_addresses.len().saturating_sub(10);
+        config.known_addresses.drain(..excess);
+        let _ = self.save_config(config);
+    }
+
     fn adb(&self) -> Result<Adb> {
         Ok(Adb { path: self.adb_path().ok_or_else(no_adb)? })
     }
@@ -507,8 +629,15 @@ impl Core {
     fn start_scrcpy(&self, mut args: Vec<String>) -> Result<Arc<Session>> {
         let scrcpy = self.scrcpy_path().ok_or_else(|| CoreError::Failed("scrcpy isn't installed. Open Setup.".into()))?;
         let adb = self.adb_path().ok_or_else(no_adb)?;
-        if self.config().capture_mouse {
+        let config = self.config();
+        if config.capture_mouse {
             args.push("--mouse=uhid".into());
+        }
+        if !config.forward_audio {
+            args.push("--no-audio".into());
+        }
+        if config.screen_off {
+            args.push("--turn-screen-off".into());
         }
         let session = Session::spawn(&scrcpy, &adb, &args)?;
         let mut sessions = self.sessions.lock().unwrap();
@@ -516,6 +645,14 @@ impl Core {
         sessions.push(session.clone());
         Ok(session)
     }
+}
+
+/// Package names go into phone shell commands: make sure that's all they are.
+fn check_package(package: &str) -> Result<()> {
+    if package.is_empty() || !package.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '_') {
+        return Err(CoreError::Failed(format!("Not a package name: {package}")));
+    }
+    Ok(())
 }
 
 fn no_adb() -> CoreError {

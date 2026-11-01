@@ -65,6 +65,7 @@ fn build(app: &adw::Application) {
         ("overview", "Overview", "phone-symbolic"),
         ("apps", "Apps", "view-app-grid-symbolic"),
         ("notifications", "Notifications", "preferences-system-notifications-symbolic"),
+        ("photos", "Photos", "image-x-generic-symbolic"),
         ("files", "Files", "folder-symbolic"),
     ] {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
@@ -324,7 +325,7 @@ fn snapshot_for_debugging(window: &adw::ApplicationWindow) {
         let window = window.clone();
         glib::timeout_add_seconds_local_once(5, move || {
             if let Some(list) = find_sections(window.upcast_ref()) {
-                let index = ["overview", "apps", "notifications", "files"].iter().position(|s| *s == section).unwrap_or(0);
+                let index = ["overview", "apps", "notifications", "photos", "files"].iter().position(|s| *s == section).unwrap_or(0);
                 list.select_row(list.row_at_index(index as i32).as_ref());
             }
         });

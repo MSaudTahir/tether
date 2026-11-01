@@ -52,6 +52,8 @@ final class AppModel {
             }
         }
         checkForUpdate()
+        let core = core
+        Task { _ = try? await offMain { try core.reconnect() } }  // phones last used over Wi-Fi
     }
 
     func refreshDevices() async {
@@ -148,7 +150,7 @@ final class AppModel {
         }
     }
 
-    private func loadApps(_ serial: String, force: Bool = false) async {
+    func loadApps(_ serial: String, force: Bool = false) async {
         guard !loadingApps.contains(serial), force || apps[serial] == nil else { return }
         loadingApps.insert(serial)
         appErrors[serial] = nil
@@ -226,6 +228,76 @@ final class AppModel {
 
     func setDarkMode(_ on: Bool, on device: Device) {
         update(device) { core in try core.setDarkMode(serial: device.serial, on: on) }
+    }
+
+    func setDoNotDisturb(_ on: Bool, on device: Device) {
+        update(device) { core in try core.setDoNotDisturb(serial: device.serial, on: on) }
+    }
+
+    // MARK: App actions
+
+    /// Shows the app's page in the phone's Settings, mirrored.
+    func showAppInfo(_ app: DeviceApp, on device: Device) {
+        let core = core
+        Task {
+            do {
+                try await offMain { try core.showAppInfo(serial: device.serial, package: app.package) }
+                mirror(device)
+            } catch {
+                alert = error.localizedDescription
+            }
+        }
+    }
+
+    func forceStop(_ app: DeviceApp, on device: Device) {
+        run { core in try core.forceStop(serial: device.serial, package: app.package) }
+    }
+
+    func clearData(_ app: DeviceApp, on device: Device) {
+        run { core in try core.clearAppData(serial: device.serial, package: app.package) }
+    }
+
+    func uninstall(_ app: DeviceApp, on device: Device) {
+        let core = core
+        Task {
+            do {
+                try await offMain { try core.uninstallApp(serial: device.serial, package: app.package) }
+                await loadApps(device.serial, force: true)
+            } catch {
+                alert = error.localizedDescription
+            }
+        }
+    }
+
+    /// Opens a link on the phone, mirrored.
+    func openLink(_ link: String, on device: Device) {
+        let core = core
+        Task {
+            do {
+                try await offMain { try core.openLink(serial: device.serial, link: link) }
+                mirror(device)
+            } catch {
+                alert = error.localizedDescription
+            }
+        }
+    }
+
+    // MARK: Photos
+
+    var photos: [String: [Photo]] = [:]
+    var photosLoading: Set<String> = []
+
+    func loadPhotos(_ device: Device) {
+        let (core, serial) = (core, device.serial)
+        photosLoading.insert(serial)
+        Task {
+            defer { photosLoading.remove(serial) }
+            do {
+                photos[serial] = try await offMain { try core.recentPhotos(serial: serial, count: 60) }
+            } catch {
+                alert = error.localizedDescription
+            }
+        }
     }
 
     func setStayAwake(_ on: Bool, on device: Device) {

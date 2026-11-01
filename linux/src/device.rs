@@ -19,6 +19,9 @@ pub struct DevicePage {
     top: gtk::Box,
     tabs: adw::ViewStack,
     notifications_box: gtk::Box,
+    photos_box: gtk::Box,
+    /// What the photo grid shows, so it's only rebuilt when that changes.
+    shown_photos: RefCell<Option<Vec<Photo>>>,
     files_header: gtk::Box,
     files_state: gtk::Stack,
     files_error: adw::StatusPage,
@@ -82,6 +85,8 @@ impl DevicePage {
         tabs.add_named(&overview, Some("overview"));
         tabs.add_named(&apps, Some("apps"));
         tabs.add_named(&notifications_box, Some("notifications"));
+        let photos_box = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        tabs.add_named(&photos_box, Some("photos"));
         let files_header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
         let files_list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).valign(gtk::Align::Start).build();
         let files_error = adw::StatusPage::builder().icon_name("folder-symbolic").title("Can't Open This Folder").build();
@@ -112,6 +117,8 @@ impl DevicePage {
             top,
             tabs,
             notifications_box,
+            photos_box,
+            shown_photos: Default::default(),
             files_header,
             files_state,
             files_error,
@@ -138,9 +145,14 @@ impl DevicePage {
         page
     }
 
-    /// Shows a section: "overview", "apps", "notifications" or "files".
+    /// Shows a section: "overview", "apps", "notifications", "photos" or "files".
     pub fn show_section(&self, name: &str) {
         self.tabs.set_visible_child_name(name);
+        if name == "photos" {
+            if let Some(device) = self.model.selected_device().filter(|d| !self.model.photos.borrow().contains_key(&d.serial)) {
+                self.model.load_photos(&device);
+            }
+        }
         if name == "files" {
             if let Some(device) = self.model.selected_device().filter(|d| !self.model.files.borrow().contains_key(&d.serial)) {
                 self.model.load_files(&device);
@@ -185,6 +197,7 @@ impl DevicePage {
         replace_children(&self.details_box, info.as_ref().map(details));
         replace_children(&self.notifications_box, Some(self.notifications(&device)));
         self.render_files(&device);
+        self.render_photos(&device);
 
         let supported = info.as_ref().map_or(true, |i| i.sdk >= virtual_display_min_sdk());
         self.apps_hint.set_label(if supported { "Click an app to open it in its own window." } else { "App windows need Android 10 or newer." });
@@ -317,12 +330,23 @@ impl DevicePage {
         row.append(&keys);
         row.append(&gtk::Separator::new(gtk::Orientation::Vertical));
 
+        let can = device_capabilities(info.sdk);
         let dark = toggle("weather-clear-night-symbolic", "Dark Mode", info.dark_mode);
+        dark.set_sensitive(can.dark_mode);
+        dark.set_tooltip_text(Some(if can.dark_mode { "Switch the phone's dark theme" } else { "Needs Android 10 or newer" }));
         {
             let (model, d) = (model.clone(), device.clone());
             dark.connect_toggled(move |b| model.set_dark_mode(b.is_active(), &d));
         }
         row.append(&dark);
+        let dnd = toggle("notifications-disabled-symbolic", "Do Not Disturb", info.do_not_disturb);
+        dnd.set_sensitive(can.do_not_disturb);
+        dnd.set_tooltip_text(Some(if can.do_not_disturb { "Silence the phone's notifications and calls" } else { "Needs Android 9 or newer" }));
+        {
+            let (model, d) = (model.clone(), device.clone());
+            dnd.connect_toggled(move |b| model.set_do_not_disturb(b.is_active(), &d));
+        }
+        row.append(&dnd);
         let awake = toggle("preferences-desktop-screensaver-symbolic", "Stay Awake", info.stay_awake);
         awake.set_tooltip_text(Some("Keep the screen on while charging"));
         {
@@ -360,6 +384,57 @@ impl DevicePage {
         let card = card();
         card.append(&row);
         card.upcast()
+    }
+
+    /// Right-click on an app: Open in Window, App Info, Force Stop, Clear Data, Uninstall.
+    fn add_app_menu(&self, tile: &gtk::Widget, app: &DeviceApp) {
+        let actions = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let popover = gtk::Popover::builder().child(&actions).has_arrow(false).build();
+        popover.set_parent(tile);
+        let entry = |label: &str, action: Box<dyn Fn(&gtk::Button, Device)>| {
+            let button = gtk::Button::builder().label(label).css_classes(["flat"]).build();
+            let (popover, model) = (popover.clone(), self.model.clone());
+            button.connect_clicked(move |b| {
+                popover.popdown();
+                if let Some(device) = model.selected_device() {
+                    action(b, device);
+                }
+            });
+            actions.append(&button);
+        };
+        let m = &self.model;
+        {
+            let (model, app) = (m.clone(), app.clone());
+            entry("Open in Window", Box::new(move |_, d| model.open(&app, &d)));
+        }
+        {
+            let (model, app) = (m.clone(), app.clone());
+            entry("App Info on Phone", Box::new(move |_, d| model.show_app_info(&app, &d)));
+        }
+        {
+            let (model, app) = (m.clone(), app.clone());
+            entry("Force Stop", Box::new(move |_, d| model.force_stop(&app, &d)));
+        }
+        {
+            let (model, app) = (m.clone(), app.clone());
+            entry("Clear Data…", Box::new(move |b, d| {
+                let (model, app) = (model.clone(), app.clone());
+                confirm(b, &format!("Clear {}'s data?", app.name), "Its files, settings and sign-ins are deleted from the phone, like “Clear storage” in Settings.", "Clear Data", move || model.clear_app_data(&app, &d));
+            }));
+        }
+        if !app.system {
+            let (model, app) = (m.clone(), app.clone());
+            entry("Uninstall…", Box::new(move |b, d| {
+                let (model, app) = (model.clone(), app.clone());
+                confirm(b, &format!("Uninstall {}?", app.name), "It's removed from the phone along with its data.", "Uninstall", move || model.uninstall_app(&app, &d));
+            }));
+        }
+        let click = gtk::GestureClick::builder().button(3).build();
+        click.connect_pressed(move |_, _, x, y| {
+            popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(x as i32, y as i32, 1, 1)));
+            popover.popup();
+        });
+        tile.add_controller(click);
     }
 
     /// The phone's current notifications, as separate cards like the phone shows them.
@@ -457,6 +532,44 @@ impl DevicePage {
         let overlay = gtk::Overlay::builder().child(&card).build();
         overlay.add_overlay(&open);
         overlay.upcast()
+    }
+
+    /// The newest photos and videos (rebuilt only when they change); click one to open it.
+    fn render_photos(&self, device: &Device) {
+        let photos = self.model.photos.borrow().get(&device.serial).cloned();
+        if *self.shown_photos.borrow() == photos && self.photos_box.first_child().is_some() {
+            return;
+        }
+        replace_children(&self.photos_box, None);
+        let header = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+        header.append(&gtk::Label::builder().label("Recent Photos").css_classes(["title-2"]).hexpand(true).xalign(0.0).build());
+        let refresh = gtk::Button::builder().icon_name("view-refresh-symbolic").tooltip_text("Reload").build();
+        {
+            let (model, d) = (self.model.clone(), device.clone());
+            refresh.connect_clicked(move |_| model.load_photos(&d));
+        }
+        header.append(&refresh);
+        self.photos_box.append(&header);
+        self.photos_box.append(&gtk::Label::builder().label("From the camera and screenshots. Click one to open it; right-click to download it.").xalign(0.0).css_classes(["dim-label"]).build());
+        let grid = gtk::FlowBox::builder().selection_mode(gtk::SelectionMode::None).homogeneous(true).min_children_per_line(2).max_children_per_line(12).column_spacing(8).row_spacing(8).build();
+        for photo in photos.iter().flatten() {
+            let tile = photo_tile(photo);
+            let (model, d, file) = (self.model.clone(), device.clone(), photo.file.clone());
+            let open = gtk::GestureClick::builder().button(1).build();
+            open.connect_released(move |_, _, _, _| model.open_file(&file, &d));
+            tile.add_controller(open);
+            let (model, d, file) = (self.model.clone(), device.clone(), photo.file.clone());
+            let download = gtk::GestureClick::builder().button(3).build();
+            download.connect_pressed(move |_, _, _, _| model.download_files(vec![file.clone()], &d));
+            tile.add_controller(download);
+            grid.append(&tile);
+        }
+        if photos.as_ref().is_some_and(|p| p.is_empty()) {
+            self.photos_box.append(&adw::StatusPage::builder().icon_name("image-x-generic-symbolic").title("No Photos").description("Photos taken on the phone show up here.").build());
+        } else {
+            self.photos_box.append(&grid);
+        }
+        *self.shown_photos.borrow_mut() = photos;
     }
 
     /// Files: the toolbar, then the folder's contents (rebuilt only when they change).
@@ -594,8 +707,21 @@ impl DevicePage {
             let (model, d) = (self.model.clone(), device.clone());
             copy.connect_clicked(move |_| model.copy_clipboard(&d));
         }
+        let link = labeled_button("web-browser-symbolic", "Open Link on Phone…");
+        link.set_tooltip_text(Some("Open a web link on the phone"));
+        {
+            let (model, d) = (self.model.clone(), device.clone());
+            link.connect_clicked(move |b| ask_name(b, "Open Link on Phone", "Open", "https://", {
+                let (model, d) = (model.clone(), d.clone());
+                move |text| {
+                    let link = if text.contains("://") { text } else { format!("https://{text}") };
+                    model.open_link(link, &d)
+                }
+            }));
+        }
         row.append(&send);
         row.append(&copy);
+        row.append(&link);
         let card = card();
         card.append(&row);
         card.upcast()
@@ -623,7 +749,9 @@ impl DevicePage {
             .cloned()
             .collect();
         for app in &visible {
-            self.grid.append(&app_tile(app));
+            let tile = app_tile(app);
+            self.add_app_menu(&tile, app);
+            self.grid.append(&tile);
         }
         *self.shown_apps.borrow_mut() = visible;
     }
@@ -856,8 +984,9 @@ fn file_icon(item: &PhoneFile) -> &'static str {
     }
 }
 
-/// Asks for a name (new folder, rename); calls `done` with a non-empty one.
+/// Asks for a name (new folder, rename) or a link; calls `done` with a non-empty one.
 fn ask_name(anchor: &impl IsA<gtk::Widget>, heading: &str, action: &str, initial: &str, done: impl Fn(String) + 'static) {
+    let allow_slash = initial.contains("://");
     let entry = gtk::Entry::builder().text(initial).activates_default(true).build();
     let dialog = adw::AlertDialog::builder().heading(heading).extra_child(&entry).build();
     dialog.add_responses(&[("cancel", "Cancel"), ("ok", action)]);
@@ -865,7 +994,7 @@ fn ask_name(anchor: &impl IsA<gtk::Widget>, heading: &str, action: &str, initial
     dialog.set_default_response(Some("ok"));
     dialog.connect_response(Some("ok"), move |_, _| {
         let name = entry.text().trim().to_string();
-        if !name.is_empty() && !name.contains('/') {
+        if !name.is_empty() && (allow_slash || !name.contains('/')) {
             done(name);
         }
     });
@@ -873,10 +1002,31 @@ fn ask_name(anchor: &impl IsA<gtk::Widget>, heading: &str, action: &str, initial
 }
 
 fn confirm_delete(anchor: &impl IsA<gtk::Widget>, model: &Rc<Model>, item: &PhoneFile, device: &Device) {
-    let dialog = adw::AlertDialog::new(Some(&format!("Delete “{}”?", item.name)), Some("It's deleted from the phone right away; this can't be undone."));
-    dialog.add_responses(&[("cancel", "Cancel"), ("delete", "Delete")]);
-    dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
-    let (model, item, device) = (model.clone(), item.clone(), device.clone());
-    dialog.connect_response(Some("delete"), move |_, _| model.delete_files(vec![item.clone()], &device));
+    let (model, item2, device) = (model.clone(), item.clone(), device.clone());
+    confirm(anchor, &format!("Delete “{}”?", item.name), "It's deleted from the phone right away; this can't be undone.", "Delete", move || {
+        model.delete_files(vec![item2.clone()], &device)
+    });
+}
+
+/// Asks before something that can't be undone.
+fn confirm(anchor: &impl IsA<gtk::Widget>, heading: &str, body: &str, action: &str, done: impl Fn() + 'static) {
+    let dialog = adw::AlertDialog::new(Some(heading), Some(body));
+    dialog.add_responses(&[("cancel", "Cancel"), ("ok", action)]);
+    dialog.set_response_appearance("ok", adw::ResponseAppearance::Destructive);
+    dialog.connect_response(Some("ok"), move |_, _| done());
     dialog.present(Some(anchor));
+}
+
+fn photo_tile(photo: &Photo) -> gtk::Widget {
+    let picture = gtk::Picture::builder().content_fit(gtk::ContentFit::Cover).width_request(150).height_request(150).can_shrink(true).build();
+    if let Some(path) = &photo.thumbnail_path {
+        picture.set_filename(Some(path));
+    }
+    let frame = gtk::Overlay::builder().child(&picture).tooltip_text(&photo.file.name).css_classes(["card"]).overflow(gtk::Overflow::Hidden).build();
+    let video = ["mp4", "mkv", "webm", "3gp", "mov"].iter().any(|e| photo.file.name.to_lowercase().ends_with(e));
+    if video {
+        let badge = gtk::Image::builder().icon_name("media-playback-start-symbolic").pixel_size(24).halign(gtk::Align::End).valign(gtk::Align::End).margin_end(6).margin_bottom(6).build();
+        frame.add_overlay(&badge);
+    }
+    frame.upcast()
 }

@@ -19,6 +19,19 @@ struct SettingsView: View {
                 Text("Sends the mouse as a real mouse, for games and apps that capture the pointer (Android 8+). Press Left ⌥ or ⌘ to release it. App windows turn on the phone's \"Force desktop mode\" developer option so the mouse appears in them.")
                     .foregroundStyle(.secondary)
             }
+            Section {
+                Toggle("Play phone audio on this Mac", isOn: Binding(
+                    get: { model.config.forwardAudio }, set: { on in var c = model.config; c.forwardAudio = on; model.save(c) }
+                ))
+                Toggle("Turn the phone's screen off while showing it", isOn: Binding(
+                    get: { model.config.screenOff }, set: { on in var c = model.config; c.screenOff = on; model.save(c) }
+                ))
+            } header: {
+                Text("Mirroring and App Windows")
+            } footer: {
+                Text("Audio needs Android 11 or newer. With the screen off, the phone stays private on your desk and saves battery; it still runs for Tether.")
+                    .foregroundStyle(.secondary)
+            }
             Section("scrcpy") {
                 LabeledContent("In use", value: model.core.scrcpyPath() ?? "Not found")
                 HStack {

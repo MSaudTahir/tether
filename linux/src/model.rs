@@ -37,6 +37,8 @@ pub struct Model {
     pub files_error: RefCell<HashMap<String, String>>,
     pub transfers: RefCell<HashMap<String, usize>>,
     pub show_hidden_files: Cell<bool>,
+    pub photos: RefCell<HashMap<String, Vec<Photo>>>,
+    pub photos_loading: RefCell<HashSet<String>>,
     pub installing: RefCell<HashSet<String>>,
     pub update: RefCell<Option<Release>>,
     pub installing_update: Cell<bool>,
@@ -71,6 +73,8 @@ impl Model {
             files_error: Default::default(),
             transfers: Default::default(),
             show_hidden_files: Cell::new(false),
+            photos: Default::default(),
+            photos_loading: Default::default(),
             installing: Default::default(),
             update: Default::default(),
             installing_update: Cell::new(false),
@@ -124,6 +128,10 @@ impl Model {
 
     /// Starts watching for devices and checks for a scrcpy update.
     pub fn start(self: &Rc<Self>) {
+        let core = self.core.clone();
+        glib::spawn_future_local(async move {
+            let _ = off_main(move || core.reconnect()).await; // phones last used over Wi-Fi
+        });
         let model = self.clone();
         glib::spawn_future_local(async move {
             model.check_for_update();
@@ -273,7 +281,7 @@ impl Model {
         self.open(&app, device);
     }
 
-    async fn load_apps(&self, serial: &str, force: bool) {
+    pub async fn load_apps(&self, serial: &str, force: bool) {
         if self.loading_apps.borrow().contains(serial) || (!force && self.apps.borrow().contains_key(serial)) {
             return;
         }
@@ -522,6 +530,75 @@ impl Model {
     pub fn set_stay_awake(self: &Rc<Self>, on: bool, device: &Device) {
         let serial = device.serial.clone();
         self.update_device(device, move |core| core.set_stay_awake(serial, on));
+    }
+
+    pub fn set_do_not_disturb(self: &Rc<Self>, on: bool, device: &Device) {
+        let serial = device.serial.clone();
+        self.update_device(device, move |core| core.set_do_not_disturb(serial, on));
+    }
+
+    // --- App actions ----------------------------------------------------------
+
+    /// Shows the app's page in the phone's Settings, mirrored.
+    pub fn show_app_info(self: &Rc<Self>, app: &DeviceApp, device: &Device) {
+        let (core, serial, package, model, device) = (self.core.clone(), device.serial.clone(), app.package.clone(), self.clone(), device.clone());
+        glib::spawn_future_local(async move {
+            match off_main(move || core.show_app_info(serial, package)).await {
+                Ok(()) => model.mirror(&device),
+                Err(e) => model.alert(&e.to_string()),
+            }
+        });
+    }
+
+    pub fn force_stop(self: &Rc<Self>, app: &DeviceApp, device: &Device) {
+        let (serial, package) = (device.serial.clone(), app.package.clone());
+        self.run(move |core| core.force_stop(serial, package));
+    }
+
+    pub fn clear_app_data(self: &Rc<Self>, app: &DeviceApp, device: &Device) {
+        let (serial, package) = (device.serial.clone(), app.package.clone());
+        self.run(move |core| core.clear_app_data(serial, package));
+    }
+
+    pub fn uninstall_app(self: &Rc<Self>, app: &DeviceApp, device: &Device) {
+        let (core, serial, package, model) = (self.core.clone(), device.serial.clone(), app.package.clone(), self.clone());
+        glib::spawn_future_local(async move {
+            let s = serial.clone();
+            match off_main(move || core.uninstall_app(s, package)).await {
+                Ok(()) => model.load_apps(&serial, true).await,
+                Err(e) => model.alert(&e.to_string()),
+            }
+        });
+    }
+
+    /// Opens a link on the phone, mirrored.
+    pub fn open_link(self: &Rc<Self>, link: String, device: &Device) {
+        let (core, serial, model, device) = (self.core.clone(), device.serial.clone(), self.clone(), device.clone());
+        glib::spawn_future_local(async move {
+            match off_main(move || core.open_link(serial, link)).await {
+                Ok(()) => model.mirror(&device),
+                Err(e) => model.alert(&e.to_string()),
+            }
+        });
+    }
+
+    // --- Photos -----------------------------------------------------------------
+
+    pub fn load_photos(self: &Rc<Self>, device: &Device) {
+        let (core, serial, model) = (self.core.clone(), device.serial.clone(), self.clone());
+        self.photos_loading.borrow_mut().insert(serial.clone());
+        self.changed();
+        glib::spawn_future_local(async move {
+            let s = serial.clone();
+            match off_main(move || core.recent_photos(s, 60)).await {
+                Ok(list) => {
+                    model.photos.borrow_mut().insert(serial.clone(), list);
+                }
+                Err(e) => model.alert(&e.to_string()),
+            }
+            model.photos_loading.borrow_mut().remove(&serial);
+            model.changed();
+        });
     }
 
     pub fn reboot(self: &Rc<Self>, device: &Device, mode: RebootMode) {

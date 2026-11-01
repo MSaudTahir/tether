@@ -167,7 +167,7 @@ const INFO_SCRIPT: &str = "echo ==props; settings get global device_name; getpro
     echo ==battery; dumpsys battery; echo ==memory; cat /proc/meminfo; echo ==storage; df /data; \
     echo ==display; wm size; wm density; echo ==uptime; cat /proc/uptime; echo ==night; cmd uimode night; \
     echo ==ip; ip -4 addr show wlan0; \
-    echo ==power; dumpsys power | grep -m1 mWakefulness= 2>/dev/null";
+    echo ==power; dumpsys power | grep -m1 mWakefulness= 2>/dev/null; echo ==zen; settings get global zen_mode";
 
 pub fn parse_info(out: &str) -> DeviceInfo {
     let section = |name: &str| -> Vec<&str> {
@@ -253,6 +253,8 @@ pub fn parse_info(out: &str) -> DeviceInfo {
         dark_mode: section("night").first() == Some(&"Night mode: yes"),
         stay_awake: prop(9).parse::<u32>().unwrap_or(0) != 0,
         screen_on: section("power").first().is_some_and(|l| *l == "mWakefulness=Awake"),
+        // Settings.Global.ZEN_MODE: 0 is off; 1-3 are kinds of Do Not Disturb.
+        do_not_disturb: section("zen").first().and_then(|z| z.parse::<u32>().ok()).is_some_and(|z| z != 0),
     }
 }
 
@@ -296,7 +298,7 @@ mod tests {
             ==storage\nFilesystem       1K-blocks      Used Available Use% Mounted on\n/dev/block/dm-10 112203740 110262804   1809864  99% /data/user/0\n\
             ==display\nPhysical size: 1080x2400\nPhysical density: 440\nOverride density: 400\n\
             ==uptime\n22623.83 136384.28\n==night\nNight mode: yes\n\
-            ==power\nmWakefulness=Awake\n\
+            ==power\nmWakefulness=Awake\n==zen\n1\n\
             ==ip\n47: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500\n    inet 192.168.100.85/24 brd 192.168.100.255 scope global dynamic wlan0\n";
         let info = parse_info(out);
         assert_eq!(info.name, "M2007J3SY");
@@ -310,7 +312,7 @@ mod tests {
         assert_eq!(info.screen, "1080 × 2400 · 400 dpi");
         assert_eq!(info.uptime_seconds, 22623);
         assert_eq!(info.wifi_address.as_deref(), Some("192.168.100.85"));
-        assert!(info.dark_mode && info.stay_awake && info.screen_on);
+        assert!(info.dark_mode && info.stay_awake && info.screen_on && info.do_not_disturb);
 
         let empty = parse_info("");
         assert_eq!((empty.memory_total, empty.storage_total, empty.wifi_address), (0, 0, None));
