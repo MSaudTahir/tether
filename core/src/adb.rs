@@ -80,6 +80,13 @@ impl Adb {
         self.connect(&address)?;
         Ok(address)
     }
+
+    /// Android sends a hardware mouse to the main display unless "Force desktop mode" (developer
+    /// option) is on; then it goes to the newest virtual display. Takes effect without a reboot.
+    pub fn mouse_follows_virtual_displays(&self, serial: &str) -> Result<()> {
+        self.text(Some(serial), &["shell", "settings put global force_desktop_mode_on_external_displays 1"])?;
+        Ok(())
+    }
 }
 
 pub fn parse_devices(out: &str) -> Vec<Device> {

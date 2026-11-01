@@ -16,7 +16,7 @@ struct SettingsView: View {
             } header: {
                 Text("Mouse")
             } footer: {
-                Text("Sends the mouse as a real mouse, for games and apps that capture the pointer (Android 8+). Press Left ⌥ or ⌘ to release it.")
+                Text("Sends the mouse as a real mouse, for games and apps that capture the pointer (Android 8+). Press Left ⌥ or ⌘ to release it. App windows turn on the phone's \"Force desktop mode\" developer option so the mouse appears in them.")
                     .foregroundStyle(.secondary)
             }
             Section("scrcpy") {

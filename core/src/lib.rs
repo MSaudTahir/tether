@@ -105,6 +105,7 @@ pub struct Config {
     pub window_size: String,
     /// Send the mouse as a real (UHID) mouse, captured in relative mode: for games and apps that use
     /// pointer capture (Android 8+). Left Alt or Cmd gives the mouse back to the computer.
+    /// App windows turn on the device's "Force desktop mode" so the mouse lands on their display.
     pub capture_mouse: bool,
     pub setup_done: bool,
 }
@@ -248,6 +249,9 @@ impl Core {
         let size = self.config().window_size;
         if parse_window_size(size.clone()).is_none() {
             return Err(CoreError::Failed("Window size must look like 1920x1080/280.".into()));
+        }
+        if self.config().capture_mouse {
+            self.adb()?.mouse_follows_virtual_displays(&serial)?;
         }
         let display = if size.is_empty() { "--new-display".into() } else { format!("--new-display={size}") };
         self.start_scrcpy(vec!["-s".into(), serial, display, format!("--start-app={package}"), format!("--window-title={title}")])
