@@ -1,0 +1,15 @@
+[package]
+name = "tether"
+version = "0.2.0"
+edition = "2021"
+description = "Use your Android phone from your computer, built on scrcpy (GTK4/libadwaita app)"
+
+[dependencies]
+tether-core = { path = "../core" }
+# v4_14 / v1_5: GNOME 46 and newer (Ubuntu 24.04, Fedora 40).
+gtk = { package = "gtk4", version = "0.10", features = ["v4_14"] }
+adw = { package = "libadwaita", version = "0.8", features = ["v1_5"] }
+
+[profile.release]
+lto = true
+strip = true
