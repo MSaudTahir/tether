@@ -17,9 +17,8 @@
     <EnableMsixTooling>true</EnableMsixTooling>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
-    <!-- Smaller downloads: drop the parts of .NET and WinUI Tether doesn't use, and WinUI's built-in
-         text in languages other than English (Tether's UI is English). -->
-    <PublishTrimmed>true</PublishTrimmed>
+    <!-- Smaller downloads: WinUI's built-in text in English only (Tether's UI is English). Trimming
+         .NET breaks WinUI's interop ("No such interface supported"), so it's off. -->
     <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
     <Nullable>enable</Nullable>
     <!-- The generated UniFFI bindings use unsafe code. -->
@@ -28,7 +27,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.WindowsAppSDK" Version="2.6.4" />
+    <!-- Only the Windows App SDK parts Tether uses: the full package also ships AI and ML runtimes
+         (onnxruntime, DirectML, Search, Widgets: ~50 MB). -->
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" Version="2.6.4" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.WinUI" Version="2.6.4" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.InteractiveExperiences" Version="2.6.4" />
     <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.28000.2957" />
   </ItemGroup>
 
