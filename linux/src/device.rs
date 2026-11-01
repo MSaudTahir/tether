@@ -19,6 +19,12 @@ pub struct DevicePage {
     top: gtk::Box,
     tabs: adw::ViewStack,
     notifications_box: gtk::Box,
+    files_header: gtk::Box,
+    files_state: gtk::Stack,
+    files_error: adw::StatusPage,
+    files_list: gtk::ListBox,
+    /// What the file list shows, so it's only rebuilt when that changes.
+    shown_files: RefCell<Option<Vec<PhoneFile>>>,
     details_box: gtk::Box,
     apps_count: gtk::Label,
     apps_hint: gtk::Label,
@@ -76,6 +82,17 @@ impl DevicePage {
         tabs.add_named(&overview, Some("overview"));
         tabs.add_named(&apps, Some("apps"));
         tabs.add_named(&notifications_box, Some("notifications"));
+        let files_header = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+        let files_list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).valign(gtk::Align::Start).build();
+        let files_error = adw::StatusPage::builder().icon_name("folder-symbolic").title("Can't Open This Folder").build();
+        let files_state = gtk::Stack::builder().vhomogeneous(false).build();
+        files_state.add_named(&files_list, Some("list"));
+        files_state.add_named(&files_error, Some("error"));
+        files_state.add_named(&adw::StatusPage::builder().icon_name("folder-symbolic").title("Empty Folder").description("Drop files here to copy them to the phone.").build(), Some("empty"));
+        let files_page = gtk::Box::new(gtk::Orientation::Vertical, 12);
+        files_page.append(&files_header);
+        files_page.append(&files_state);
+        tabs.add_named(&files_page, Some("files"));
         let clamp = adw::Clamp::builder().maximum_size(1400).tightening_threshold(1000).child(&tabs).build();
         clamp.set_margin_top(24);
         clamp.set_margin_bottom(24);
@@ -95,6 +112,11 @@ impl DevicePage {
             top,
             tabs,
             notifications_box,
+            files_header,
+            files_state,
+            files_error,
+            files_list,
+            shown_files: Default::default(),
             details_box,
             apps_count,
             apps_hint,
@@ -116,9 +138,18 @@ impl DevicePage {
         page
     }
 
-    /// Shows a section: "overview", "apps" or "notifications".
+    /// Shows a section: "overview", "apps", "notifications" or "files".
     pub fn show_section(&self, name: &str) {
         self.tabs.set_visible_child_name(name);
+        if name == "files" {
+            if let Some(device) = self.model.selected_device().filter(|d| !self.model.files.borrow().contains_key(&d.serial)) {
+                self.model.load_files(&device);
+            }
+        }
+    }
+
+    pub fn section(&self) -> String {
+        self.tabs.visible_child_name().map(|n| n.to_string()).unwrap_or_default()
     }
 
     pub fn widget(&self) -> &gtk::Stack {
@@ -153,6 +184,7 @@ impl DevicePage {
         }
         replace_children(&self.details_box, info.as_ref().map(details));
         replace_children(&self.notifications_box, Some(self.notifications(&device)));
+        self.render_files(&device);
 
         let supported = info.as_ref().map_or(true, |i| i.sdk >= virtual_display_min_sdk());
         self.apps_hint.set_label(if supported { "Click an app to open it in its own window." } else { "App windows need Android 10 or newer." });
@@ -427,6 +459,121 @@ impl DevicePage {
         overlay.upcast()
     }
 
+    /// Files: the toolbar, then the folder's contents (rebuilt only when they change).
+    fn render_files(&self, device: &Device) {
+        let model = &self.model;
+        let folder = model.current_folder(&device.serial);
+        while let Some(child) = self.files_header.first_child() {
+            self.files_header.remove(&child);
+        }
+        let up = gtk::Button::builder().icon_name("go-up-symbolic").tooltip_text("Up one folder").sensitive(folder != "/").build();
+        {
+            let (model, d, parent) = (model.clone(), device.clone(), folder.rsplit_once('/').map_or("/", |(p, _)| if p.is_empty() { "/" } else { p }).to_string());
+            up.connect_clicked(move |_| model.open_folder(parent.clone(), &d));
+        }
+        self.files_header.append(&up);
+        self.files_header.append(&breadcrumbs(model, device, &folder));
+        self.files_header.append(&gtk::Box::builder().hexpand(true).build());
+        if model.transfers.borrow().get(&device.serial).copied().unwrap_or(0) > 0 {
+            self.files_header.append(&gtk::Spinner::builder().spinning(true).build());
+        }
+        let hidden = gtk::ToggleButton::builder().icon_name("view-reveal-symbolic").tooltip_text("Show hidden files").active(model.show_hidden_files.get()).build();
+        {
+            let (model, d) = (model.clone(), device.clone());
+            hidden.connect_toggled(move |b| {
+                model.show_hidden_files.set(b.is_active());
+                model.load_files(&d);
+            });
+        }
+        let new_folder = gtk::Button::builder().icon_name("folder-new-symbolic").tooltip_text("New folder").build();
+        {
+            let (model, d) = (model.clone(), device.clone());
+            new_folder.connect_clicked(move |b| ask_name(b, "New Folder", "Create", "", {
+                let (model, d) = (model.clone(), d.clone());
+                move |name| model.make_folder(&name, &d)
+            }));
+        }
+        let upload = labeled_button("document-send-symbolic", "Upload…");
+        upload.set_tooltip_text(Some("Copy files from this computer to this folder. You can also drop files here."));
+        {
+            let (model, d) = (model.clone(), device.clone());
+            upload.connect_clicked(move |button| {
+                let (model, d, window) = (model.clone(), d.clone(), button.root().and_downcast::<gtk::Window>());
+                glib::spawn_future_local(async move {
+                    if let Ok(files) = gtk::FileDialog::builder().title("Upload to the Phone").build().open_multiple_future(window.as_ref()).await {
+                        let paths: Vec<_> = (0..files.n_items()).filter_map(|i| files.item(i).and_downcast::<gio::File>()?.path()).collect();
+                        model.upload_files(paths, &d);
+                    }
+                });
+            });
+        }
+        let refresh = gtk::Button::builder().icon_name("view-refresh-symbolic").tooltip_text("Reload this folder").build();
+        {
+            let (model, d) = (model.clone(), device.clone());
+            refresh.connect_clicked(move |_| model.load_files(&d));
+        }
+        for widget in [hidden.upcast_ref::<gtk::Widget>(), new_folder.upcast_ref(), upload.upcast_ref(), refresh.upcast_ref()] {
+            self.files_header.append(widget);
+        }
+
+        if let Some(error) = model.files_error.borrow().get(&device.serial) {
+            self.files_error.set_description(Some(error));
+            self.files_state.set_visible_child_name("error");
+            return;
+        }
+        let files = model.files.borrow().get(&device.serial).cloned();
+        if *self.shown_files.borrow() == files {
+            return;
+        }
+        self.files_list.remove_all();
+        for item in files.iter().flatten() {
+            self.files_list.append(&self.file_row(item, device));
+        }
+        self.files_state.set_visible_child_name(if files.as_ref().is_some_and(|f| f.is_empty()) { "empty" } else { "list" });
+        *self.shown_files.borrow_mut() = files;
+    }
+
+    fn file_row(&self, item: &PhoneFile, device: &Device) -> adw::ActionRow {
+        let date = glib::DateTime::from_unix_local(item.modified).ok().and_then(|t| t.format("%e %b %Y, %H:%M").ok()).map(|t| t.trim().to_string()).unwrap_or_default();
+        let subtitle = if item.folder { format!("Folder · {date}") } else { format!("{} · {date}", bytes(item.size)) };
+        let row = adw::ActionRow::builder().title(glib::markup_escape_text(&item.name)).subtitle(subtitle).activatable(true).build();
+        row.add_prefix(&gtk::Image::from_icon_name(file_icon(item)));
+        {
+            let (model, d, item) = (self.model.clone(), device.clone(), item.clone());
+            row.connect_activated(move |_| model.open_file(&item, &d));
+        }
+        // ⋮ menu: Download, Rename, Delete.
+        let actions = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        let popover = gtk::Popover::builder().child(&actions).build();
+        let entry = |label: &str, action: Box<dyn Fn(&gtk::Button)>| {
+            let button = gtk::Button::builder().label(label).css_classes(["flat"]).build();
+            let popover = popover.clone();
+            button.connect_clicked(move |b| {
+                popover.popdown();
+                action(b);
+            });
+            actions.append(&button);
+        };
+        {
+            let (model, d, item) = (self.model.clone(), device.clone(), item.clone());
+            entry("Download to Downloads", Box::new(move |_| model.download_files(vec![item.clone()], &d)));
+        }
+        {
+            let (model, d, item) = (self.model.clone(), device.clone(), item.clone());
+            entry("Rename…", Box::new(move |b| {
+                let (model, d, item2) = (model.clone(), d.clone(), item.clone());
+                ask_name(b, "Rename", "Rename", &item.name, move |name| model.rename_file(&item2, &name, &d));
+            }));
+        }
+        {
+            let (model, d, item) = (self.model.clone(), device.clone(), item.clone());
+            entry("Delete…", Box::new(move |b| confirm_delete(b, &model, &item, &d)));
+        }
+        let menu = gtk::MenuButton::builder().icon_name("view-more-symbolic").popover(&popover).valign(gtk::Align::Center).css_classes(["flat"]).build();
+        row.add_suffix(&menu);
+        row
+    }
+
     /// Moves text between this computer's and the phone's clipboards.
     fn clipboard(&self, device: &Device) -> gtk::Widget {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 10);
@@ -663,4 +810,73 @@ fn replace_children(container: &gtk::Box, child: Option<gtk::Widget>) {
     if let Some(child) = child {
         container.append(&child);
     }
+}
+
+/// "Phone › DCIM › Camera": click a part to go there.
+fn breadcrumbs(model: &Rc<Model>, device: &Device, path: &str) -> gtk::Widget {
+    let root = phone_storage();
+    let in_storage = path == root || path.starts_with(&format!("{root}/"));
+    let rest = if in_storage { &path[root.len()..] } else { path };
+    let parts: Vec<&str> = rest.split('/').filter(|p| !p.is_empty()).collect();
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 2);
+    let crumb = |label: &str, target: String, bold: bool| {
+        let button = gtk::Button::builder().label(label).css_classes(["flat"]).build();
+        if bold {
+            button.add_css_class("heading");
+        }
+        let (model, d) = (model.clone(), device.clone());
+        button.connect_clicked(move |_| model.open_folder(target.clone(), &d));
+        button
+    };
+    if in_storage {
+        row.append(&crumb("Phone", root.clone(), parts.is_empty()));
+    }
+    for (i, part) in parts.iter().enumerate() {
+        if in_storage || i > 0 {
+            row.append(&gtk::Image::from_icon_name("go-next-symbolic"));
+        }
+        let target = format!("{}/{}", if in_storage { root.as_str() } else { "" }, parts[..=i].join("/"));
+        row.append(&crumb(part, target, i == parts.len() - 1));
+    }
+    row.upcast()
+}
+
+fn file_icon(item: &PhoneFile) -> &'static str {
+    if item.folder {
+        return "folder-symbolic";
+    }
+    let ext = item.name.rsplit_once('.').map(|(_, e)| e.to_lowercase()).unwrap_or_default();
+    match ext.as_str() {
+        "jpg" | "jpeg" | "png" | "gif" | "webp" | "heic" => "image-x-generic-symbolic",
+        "mp4" | "mkv" | "mov" | "webm" | "3gp" => "video-x-generic-symbolic",
+        "mp3" | "m4a" | "aac" | "ogg" | "opus" | "wav" | "flac" => "audio-x-generic-symbolic",
+        "zip" | "rar" | "7z" | "tar" | "gz" => "package-x-generic-symbolic",
+        "apk" => "application-x-executable-symbolic",
+        _ => "text-x-generic-symbolic",
+    }
+}
+
+/// Asks for a name (new folder, rename); calls `done` with a non-empty one.
+fn ask_name(anchor: &impl IsA<gtk::Widget>, heading: &str, action: &str, initial: &str, done: impl Fn(String) + 'static) {
+    let entry = gtk::Entry::builder().text(initial).activates_default(true).build();
+    let dialog = adw::AlertDialog::builder().heading(heading).extra_child(&entry).build();
+    dialog.add_responses(&[("cancel", "Cancel"), ("ok", action)]);
+    dialog.set_response_appearance("ok", adw::ResponseAppearance::Suggested);
+    dialog.set_default_response(Some("ok"));
+    dialog.connect_response(Some("ok"), move |_, _| {
+        let name = entry.text().trim().to_string();
+        if !name.is_empty() && !name.contains('/') {
+            done(name);
+        }
+    });
+    dialog.present(Some(anchor));
+}
+
+fn confirm_delete(anchor: &impl IsA<gtk::Widget>, model: &Rc<Model>, item: &PhoneFile, device: &Device) {
+    let dialog = adw::AlertDialog::new(Some(&format!("Delete “{}”?", item.name)), Some("It's deleted from the phone right away; this can't be undone."));
+    dialog.add_responses(&[("cancel", "Cancel"), ("delete", "Delete")]);
+    dialog.set_response_appearance("delete", adw::ResponseAppearance::Destructive);
+    let (model, item, device) = (model.clone(), item.clone(), device.clone());
+    dialog.connect_response(Some("delete"), move |_, _| model.delete_files(vec![item.clone()], &device));
+    dialog.present(Some(anchor));
 }

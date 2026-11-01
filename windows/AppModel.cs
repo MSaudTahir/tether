@@ -257,6 +257,89 @@ sealed class AppModel
         await LoadInfo(device.serial);
     }
 
+    // --- Files -------------------------------------------------------------
+
+    /// Files: the folder shown, its contents, and copies in progress, per phone.
+    public readonly Dictionary<string, string> FilePath = [];
+    public readonly Dictionary<string, PhoneFile[]> Files = [];
+    public readonly Dictionary<string, string> FilesError = [];
+    public readonly Dictionary<string, int> Transfers = [];
+    public bool ShowHiddenFiles;
+
+    public string CurrentFolder(Device device) => FilePath.GetValueOrDefault(device.serial) ?? TetherCoreMethods.PhoneStorage();
+
+    public void OpenFolder(string path, Device device)
+    {
+        FilePath[device.serial] = path;
+        LoadFiles(device);
+    }
+
+    public async void LoadFiles(Device device)
+    {
+        var (serial, path, hidden) = (device.serial, CurrentFolder(device), ShowHiddenFiles);
+        try
+        {
+            Files[serial] = await Task.Run(() => Core.ListFiles(serial, path, hidden));
+            FilesError.Remove(serial);
+        }
+        catch (Exception e) { FilesError[serial] = e.Message; }
+        Notify();
+    }
+
+    /// Runs a copy or change on the phone's files, then reloads the folder.
+    async void FileAction(Device device, Func<Task> work)
+    {
+        Transfers[device.serial] = Transfers.GetValueOrDefault(device.serial) + 1;
+        Notify();
+        try { await work(); }
+        catch (Exception e) { Alert?.Invoke(e.Message); }
+        Transfers[device.serial]--;
+        LoadFiles(device);
+    }
+
+    /// Downloads to the Downloads folder and shows the first in Explorer.
+    public void Download(PhoneFile[] items, Device device) => FileAction(device, async () =>
+    {
+        var downloads = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "Downloads");
+        var first = "";
+        foreach (var item in items)
+        {
+            var local = await Task.Run(() => Core.DownloadFile(device.serial, item.path, downloads));
+            if (first == "") first = local;
+        }
+        if (first != "") System.Diagnostics.Process.Start("explorer.exe", $"/select,\"{first}\"");
+    });
+
+    /// Downloads to a temporary folder and opens it with its app.
+    public void OpenFile(PhoneFile item, Device device)
+    {
+        if (item.folder) { OpenFolder(item.path, device); return; }
+        FileAction(device, async () =>
+        {
+            var temp = Path.Combine(Path.GetTempPath(), "Tether", Guid.NewGuid().ToString());
+            var local = await Task.Run(() => Core.DownloadFile(device.serial, item.path, temp));
+            System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(local) { UseShellExecute = true });
+        });
+    }
+
+    public void Upload(IEnumerable<string> paths, Device device)
+    {
+        var folder = CurrentFolder(device);
+        FileAction(device, () => Task.Run(() => { foreach (var p in paths) Core.UploadFile(device.serial, p, folder); }));
+    }
+
+    public void MakeFolder(string name, Device device) =>
+        FileAction(device, () => Task.Run(() => Core.MakeFolder(device.serial, $"{CurrentFolder(device)}/{name}")));
+
+    public void Rename(PhoneFile item, string name, Device device)
+    {
+        var parent = item.path[..Math.Max(0, item.path.LastIndexOf('/'))];
+        FileAction(device, () => Task.Run(() => Core.RenameFile(device.serial, item.path, $"{parent}/{name}")));
+    }
+
+    public void Delete(PhoneFile[] items, Device device) =>
+        FileAction(device, () => Task.Run(() => Core.DeleteFiles(device.serial, items.Select(i => i.path).ToArray())));
+
     /// A short result of the last clipboard action, per phone.
     public readonly Dictionary<string, string> ClipboardStatus = [];
 

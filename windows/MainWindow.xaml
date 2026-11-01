@@ -85,6 +85,9 @@
                             <TextBlock x:Name="NotificationCount" Foreground="{ThemeResource TextFillColorSecondaryBrush}" />
                         </StackPanel>
                     </ListViewItem>
+                    <ListViewItem Tag="files">
+                        <StackPanel Orientation="Horizontal" Spacing="12"><FontIcon Glyph="&#xE8B7;" FontSize="16" /><TextBlock Text="Files" /></StackPanel>
+                    </ListViewItem>
                 </ListView>
             </StackPanel>
 
@@ -141,6 +144,7 @@
                             <ContentControl x:Name="DetailsHost" HorizontalContentAlignment="Stretch" />
                             </StackPanel>
                             <ContentControl x:Name="NotificationsHost" HorizontalContentAlignment="Stretch" Visibility="Collapsed" />
+                            <ContentControl x:Name="FilesHost" HorizontalContentAlignment="Stretch" Visibility="Collapsed" />
 
                             <!-- Apps -->
                             <StackPanel x:Name="AppsPanel" Spacing="14" Visibility="Collapsed">

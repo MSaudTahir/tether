@@ -249,6 +249,106 @@ final class AppModel {
         }
     }
 
+    // MARK: Files
+
+    /// The folder shown in Files, per phone.
+    var filePath: [String: String] = [:]
+    var files: [String: [PhoneFile]] = [:]
+    var filesLoading: Set<String> = []
+    var filesError: [String: String] = [:]
+    /// Copies in progress, per phone.
+    var transfers: [String: Int] = [:]
+    var showHiddenFiles = false
+
+    func currentFolder(_ device: Device) -> String { filePath[device.serial] ?? phoneStorage() }
+
+    func openFolder(_ path: String, on device: Device) {
+        filePath[device.serial] = path
+        loadFiles(device)
+    }
+
+    func loadFiles(_ device: Device) {
+        let (core, serial, path, hidden) = (core, device.serial, currentFolder(device), showHiddenFiles)
+        filesLoading.insert(serial)
+        Task {
+            defer { filesLoading.remove(serial) }
+            do {
+                files[serial] = try await offMain { try core.listFiles(serial: serial, path: path, hidden: hidden) }
+                filesError[serial] = nil
+            } catch {
+                filesError[serial] = error.localizedDescription
+            }
+        }
+    }
+
+    /// Runs a copy or change on the phone's files, then reloads the folder.
+    private func fileAction(_ device: Device, _ work: @escaping @Sendable (Core) throws -> Void, then: (@MainActor () -> Void)? = nil) {
+        let core = core
+        transfers[device.serial, default: 0] += 1
+        Task {
+            do {
+                try await offMain { try work(core) }
+                then?()
+            } catch {
+                alert = error.localizedDescription
+            }
+            transfers[device.serial, default: 1] -= 1
+            loadFiles(device)
+        }
+    }
+
+    /// Downloads to the Downloads folder and shows them in Finder.
+    func download(_ items: [PhoneFile], from device: Device) {
+        let downloads = URL.downloadsDirectory.path
+        let serial = device.serial
+        let results = ResultBox()
+        fileAction(device, { core in
+            for item in items {
+                results.append(try core.downloadFile(serial: serial, path: item.path, localDir: downloads))
+            }
+        }, then: {
+            NSWorkspace.shared.activateFileViewerSelecting(results.paths.map { URL(filePath: $0) })
+        })
+    }
+
+    /// Downloads to a temporary folder and opens it with its Mac app.
+    func open(_ item: PhoneFile, on device: Device) {
+        if item.folder { return openFolder(item.path, on: device) }
+        let temp = URL.temporaryDirectory.appending(path: "Tether/\(UUID().uuidString)").path
+        let serial = device.serial
+        let results = ResultBox()
+        fileAction(device, { core in
+            results.append(try core.downloadFile(serial: serial, path: item.path, localDir: temp))
+        }, then: {
+            if let path = results.paths.first { NSWorkspace.shared.open(URL(filePath: path)) }
+        })
+    }
+
+    func upload(_ urls: [URL], to device: Device) {
+        let (serial, folder) = (device.serial, currentFolder(device))
+        fileAction(device) { core in
+            for url in urls {
+                try core.uploadFile(serial: serial, localPath: url.path, folder: folder)
+            }
+        }
+    }
+
+    func makeFolder(named name: String, on device: Device) {
+        let (serial, path) = (device.serial, "\(currentFolder(device))/\(name)")
+        fileAction(device) { core in try core.makeFolder(serial: serial, path: path) }
+    }
+
+    func rename(_ item: PhoneFile, to name: String, on device: Device) {
+        let parent = (item.path as NSString).deletingLastPathComponent
+        let serial = device.serial
+        fileAction(device) { core in try core.renameFile(serial: serial, from: item.path, to: "\(parent)/\(name)") }
+    }
+
+    func delete(_ items: [PhoneFile], on device: Device) {
+        let (serial, paths) = (device.serial, items.map(\.path))
+        fileAction(device) { core in try core.deleteFiles(serial: serial, paths: paths) }
+    }
+
     /// A short result of the last clipboard action, per phone.
     var clipboardStatus: [String: String] = [:]
 
@@ -413,3 +513,11 @@ func offMain<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async thro
     try await Task.detached(priority: .userInitiated, operation: work).value
 }
 
+/// Collects results from background work.
+final class ResultBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var items: [String] = []
+
+    func append(_ path: String) { lock.withLock { items.append(path) } }
+    var paths: [String] { lock.withLock { items } }
+}

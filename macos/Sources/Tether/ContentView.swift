@@ -4,7 +4,8 @@ struct ContentView: View {
     @Environment(AppModel.self) private var model
     @State private var search = ""
     @State private var showPair = false
-    @State private var section: DeviceTab? = .overview
+    /// TETHER_SECTION=Files etc. picks the first section (handy for screenshots).
+    @State private var section: DeviceTab? = ProcessInfo.processInfo.environment["TETHER_SECTION"].flatMap(DeviceTab.init) ?? .overview
 
     var body: some View {
         NavigationSplitView {

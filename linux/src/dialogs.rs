@@ -41,8 +41,10 @@ pub fn window_size_button(model: &Rc<Model>) -> gtk::MenuButton {
     let portrait = adw::SwitchRow::builder().title("Portrait").build();
     let text_sizes: Vec<gtk::ToggleButton> = ["Smaller", "Default", "Larger"].iter().map(|label| gtk::ToggleButton::with_label(label)).collect();
     let text_box = gtk::Box::builder().css_classes(["linked"]).valign(gtk::Align::Center).build();
-    for button in &text_sizes {
-        button.set_group(text_sizes.first());
+    for (i, button) in text_sizes.iter().enumerate() {
+        if i > 0 {
+            button.set_group(text_sizes.first());
+        }
         text_box.append(button);
     }
     let text_size = adw::ActionRow::builder().title("Text size").build();

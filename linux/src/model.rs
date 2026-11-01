@@ -31,6 +31,12 @@ pub struct Model {
     /// Tether Buddy's state per phone.
     pub buddy: RefCell<HashMap<String, BuddyState>>,
     pub installing_buddy: RefCell<HashSet<String>>,
+    /// Files: the folder shown, its contents, and copies in progress, per phone.
+    pub file_path: RefCell<HashMap<String, String>>,
+    pub files: RefCell<HashMap<String, Vec<PhoneFile>>>,
+    pub files_error: RefCell<HashMap<String, String>>,
+    pub transfers: RefCell<HashMap<String, usize>>,
+    pub show_hidden_files: Cell<bool>,
     pub installing: RefCell<HashSet<String>>,
     pub update: RefCell<Option<Release>>,
     pub installing_update: Cell<bool>,
@@ -60,6 +66,11 @@ impl Model {
             notifications: Default::default(),
             buddy: Default::default(),
             installing_buddy: Default::default(),
+            file_path: Default::default(),
+            files: Default::default(),
+            files_error: Default::default(),
+            transfers: Default::default(),
+            show_hidden_files: Cell::new(false),
             installing: Default::default(),
             update: Default::default(),
             installing_update: Cell::new(false),
@@ -96,7 +107,7 @@ impl Model {
         }
     }
 
-    fn toast(&self, message: &str, file: Option<PathBuf>) {
+    pub fn toast(&self, message: &str, file: Option<PathBuf>) {
         if let Some(f) = &*self.on_toast.borrow() {
             f(message, file);
         }
@@ -294,6 +305,106 @@ impl Model {
         let title = format!("{} · {}", app.name, self.name(device));
         let screen = self.screen.get();
         self.launch(move |core| core.open_app(serial, package, title, screen));
+    }
+
+    // --- Files ----------------------------------------------------------------
+
+    pub fn current_folder(&self, serial: &str) -> String {
+        self.file_path.borrow().get(serial).cloned().unwrap_or_else(phone_storage)
+    }
+
+    pub fn open_folder(self: &Rc<Self>, path: String, device: &Device) {
+        self.file_path.borrow_mut().insert(device.serial.clone(), path);
+        self.load_files(device);
+    }
+
+    pub fn load_files(self: &Rc<Self>, device: &Device) {
+        let (core, serial, model) = (self.core.clone(), device.serial.clone(), self.clone());
+        let (path, hidden) = (self.current_folder(&serial), self.show_hidden_files.get());
+        glib::spawn_future_local(async move {
+            let s = serial.clone();
+            match off_main(move || core.list_files(s, path, hidden)).await {
+                Ok(list) => {
+                    model.files.borrow_mut().insert(serial.clone(), list);
+                    model.files_error.borrow_mut().remove(&serial);
+                }
+                Err(e) => {
+                    model.files_error.borrow_mut().insert(serial.clone(), e.to_string());
+                }
+            }
+            model.changed();
+        });
+    }
+
+    /// Runs a copy or change on the phone's files, then reloads the folder; `done` gets the result.
+    fn file_action<T: Send + 'static>(
+        self: &Rc<Self>,
+        device: &Device,
+        work: impl FnOnce(&Core) -> Result<T, CoreError> + Send + 'static,
+        done: impl FnOnce(&Rc<Model>, T) + 'static,
+    ) {
+        let (core, model, device) = (self.core.clone(), self.clone(), device.clone());
+        *self.transfers.borrow_mut().entry(device.serial.clone()).or_default() += 1;
+        self.changed();
+        glib::spawn_future_local(async move {
+            match off_main(move || work(&core)).await {
+                Ok(value) => done(&model, value),
+                Err(e) => model.alert(&e.to_string()),
+            }
+            *model.transfers.borrow_mut().entry(device.serial.clone()).or_default() -= 1;
+            model.load_files(&device);
+        });
+    }
+
+    /// Downloads to the Downloads folder.
+    pub fn download_files(self: &Rc<Self>, items: Vec<PhoneFile>, device: &Device) {
+        let downloads = glib::user_special_dir(glib::UserDirectory::Downloads).unwrap_or_else(glib::home_dir);
+        let (serial, dir) = (device.serial.clone(), downloads.to_string_lossy().to_string());
+        self.file_action(
+            device,
+            move |core| items.iter().map(|i| core.download_file(serial.clone(), i.path.clone(), dir.clone())).collect::<Result<Vec<_>, _>>(),
+            |model, paths: Vec<String>| {
+                let first = paths.first().map(PathBuf::from);
+                model.toast(&format!("Downloaded {} to Downloads", if paths.len() == 1 { "1 item".into() } else { format!("{} items", paths.len()) }), first);
+            },
+        );
+    }
+
+    /// Downloads to a temporary folder and opens it with its app.
+    pub fn open_file(self: &Rc<Self>, item: &PhoneFile, device: &Device) {
+        if item.folder {
+            return self.open_folder(item.path.clone(), device);
+        }
+        let temp = glib::tmp_dir().join("tether").join(format!("{}", glib::monotonic_time()));
+        let (serial, path, dir) = (device.serial.clone(), item.path.clone(), temp.to_string_lossy().to_string());
+        self.file_action(device, move |core| core.download_file(serial, path, dir), |_, local: String| {
+            let _ = gio::AppInfo::launch_default_for_uri(&gio::File::for_path(&local).uri(), None::<&gio::AppLaunchContext>);
+        });
+    }
+
+    pub fn upload_files(self: &Rc<Self>, paths: Vec<PathBuf>, device: &Device) {
+        let (serial, folder) = (device.serial.clone(), self.current_folder(&device.serial));
+        self.file_action(
+            device,
+            move |core| paths.iter().try_for_each(|p| core.upload_file(serial.clone(), p.to_string_lossy().into(), folder.clone())),
+            |_, ()| {},
+        );
+    }
+
+    pub fn make_folder(self: &Rc<Self>, name: &str, device: &Device) {
+        let (serial, path) = (device.serial.clone(), format!("{}/{name}", self.current_folder(&device.serial)));
+        self.file_action(device, move |core| core.make_folder(serial, path), |_, ()| {});
+    }
+
+    pub fn rename_file(self: &Rc<Self>, item: &PhoneFile, name: &str, device: &Device) {
+        let parent = item.path.rsplit_once('/').map_or("", |(p, _)| p).to_string();
+        let (serial, from, to) = (device.serial.clone(), item.path.clone(), format!("{parent}/{name}"));
+        self.file_action(device, move |core| core.rename_file(serial, from, to), |_, ()| {});
+    }
+
+    pub fn delete_files(self: &Rc<Self>, items: Vec<PhoneFile>, device: &Device) {
+        let (serial, paths) = (device.serial.clone(), items.into_iter().map(|i| i.path).collect());
+        self.file_action(device, move |core| core.delete_files(serial, paths), |_, ()| {});
     }
 
     /// Puts this computer's clipboard text on the phone's clipboard.

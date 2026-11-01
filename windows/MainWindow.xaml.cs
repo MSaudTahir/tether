@@ -129,6 +129,7 @@ public sealed partial class MainWindow : Window
         DetailsHost.Content = info != null ? ControlPanel.Details(info) : null;
         var notifications = model.Notifications.GetValueOrDefault(device.serial) ?? [];
         NotificationsHost.Content = ControlPanel.Notifications(device, notifications);
+        FilesHost.Content = FilesView.Build(device);
 
         var supported = (info?.sdk ?? uint.MaxValue) >= TetherCoreMethods.VirtualDisplayMinSdk();
         AppsHint.Text = supported ? "Click an app to open it in its own window." : "App windows need Android 10 or newer.";
@@ -233,12 +234,13 @@ public sealed partial class MainWindow : Window
         }
     }
 
-    /// Dropped .apk files are installed on the selected phone.
+    /// Dropped files upload to the folder shown in Files; elsewhere, dropped .apk files are installed.
     async void Detail_Drop(object sender, DragEventArgs e)
     {
         if (model.SelectedDevice is not { } device) return;
-        var items = await e.DataView.GetStorageItemsAsync();
-        var apks = items.Select(item => item.Path).Where(path => path.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)).ToList();
+        var paths = (await e.DataView.GetStorageItemsAsync()).Select(item => item.Path).ToList();
+        if (FilesHost.Visibility == Visibility.Visible) { model.Upload(paths, device); return; }
+        var apks = paths.Where(path => path.EndsWith(".apk", StringComparison.OrdinalIgnoreCase)).ToList();
         if (apks.Count > 0) model.Install(apks, device);
     }
 
@@ -249,6 +251,8 @@ public sealed partial class MainWindow : Window
         OverviewPanel.Visibility = section == "overview" ? Visibility.Visible : Visibility.Collapsed;
         AppsPanel.Visibility = section == "apps" ? Visibility.Visible : Visibility.Collapsed;
         NotificationsHost.Visibility = section == "notifications" ? Visibility.Visible : Visibility.Collapsed;
+        FilesHost.Visibility = section == "files" ? Visibility.Visible : Visibility.Collapsed;
+        if (section == "files" && model.SelectedDevice is { } device && !model.Files.ContainsKey(device.serial)) model.LoadFiles(device);
     }
 
     void Search_TextChanged(AutoSuggestBox sender, AutoSuggestBoxTextChangedEventArgs args) => Render();

@@ -13,6 +13,8 @@ A small desktop app for using your Android phone from your computer, built on
   mirrored: with [Tether Buddy](#tether-buddy) it does what tapping it does (e.g. opens that chat);
   without, the notification shade opens for you to tap it there.
 - **Clipboard**: send your computer's clipboard to the phone, or copy the phone's to the computer.
+- **Files**: browse the phone's storage; open, download, upload (or drop files in), rename, delete
+  and make folders.
 - **Control panel**: storage, memory, battery health and temperature, chipset, display and more;
   take screenshots, install APKs (or drop them on the window), press Back/Home/Volume/Power, switch
   dark mode or "stay awake", and restart the phone.
@@ -55,8 +57,8 @@ choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/Tether.app
    use **Pair** (Developer options → Wireless debugging → *Pair device with pairing code*), or
    press **Go Wireless** while connected by USB.
 3. The sidebar shows the phone (switch phones or pair one from its menu) and its sections:
-   **Overview** (status, controls and details), **Apps** (click one to open it in its own window)
-   and **Notifications**. **Mirror Screen** in the toolbar shows the
+   **Overview** (status, controls and details), **Apps** (click one to open it in its own window),
+   **Notifications** and **Files**. **Mirror Screen** in the toolbar shows the
    whole screen. **Refresh** reloads the app list; it's cached until then.
 
 | | macOS | Linux / Windows |
@@ -152,7 +154,7 @@ One shared core holds all the logic; each platform gets a thin native UI on top 
 
 | Folder | What |
 |---|---|
-| [`core/`](core/) | Rust: adb, scrcpy download and updates, the app and icon cache, device info and controls, pairing, scrcpy windows, settings. |
+| [`core/`](core/) | Rust: adb, scrcpy download and updates, the app and icon cache, device info and controls, notifications, files, clipboard, pairing, scrcpy windows, settings. |
 | [`macos/`](macos/) | SwiftUI app with Liquid Glass. |
 | [`linux/`](linux/) | GTK4 + libadwaita app in Rust. |
 | [`windows/`](windows/) | WinUI 3 app in C#. |

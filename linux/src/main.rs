@@ -65,6 +65,7 @@ fn build(app: &adw::Application) {
         ("overview", "Overview", "phone-symbolic"),
         ("apps", "Apps", "view-app-grid-symbolic"),
         ("notifications", "Notifications", "preferences-system-notifications-symbolic"),
+        ("files", "Files", "folder-symbolic"),
     ] {
         let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
         row.set_margin_top(6);
@@ -228,7 +229,7 @@ fn build(app: &adw::Application) {
     // Redraw on every change; the device list only when it changed.
     let shown_devices: Rc<RefCell<Vec<(String, String)>>> = Default::default();
     let render = {
-        let (model, window) = (model.clone(), window.clone());
+        let (model, window, page) = (model.clone(), window.clone(), page.clone());
         move || {
             stack.set_visible_child_name(if model.needs_setup.get() { "setup" } else { "main" });
             if let Some(release) = &*model.update.borrow() {
@@ -283,20 +284,24 @@ fn build(app: &adw::Application) {
         search.connect_search_changed(move |_| render());
     }
 
-    // Drop .apk files anywhere to install them on the selected phone.
+    // Dropped files upload to the folder shown in Files; elsewhere, dropped .apk files are installed.
     let drop = gtk::DropTarget::new(gdk::FileList::static_type(), gdk::DragAction::COPY);
     {
-        let model = model.clone();
+        let (model, page) = (model.clone(), page.clone());
         drop.connect_drop(move |_, value, _, _| {
             let Ok(files) = value.get::<gdk::FileList>() else { return false };
-            let apks: Vec<_> = files.files().iter().filter_map(|f| f.path()).filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("apk"))).collect();
-            match model.selected_device() {
-                Some(device) if !apks.is_empty() => {
-                    model.install(apks, &device);
-                    true
-                }
-                _ => false,
+            let paths: Vec<_> = files.files().iter().filter_map(|f| f.path()).collect();
+            let Some(device) = model.selected_device().filter(|_| !paths.is_empty()) else { return false };
+            if page.section() == "files" {
+                model.upload_files(paths, &device);
+                return true;
             }
+            let apks: Vec<_> = paths.into_iter().filter(|p| p.extension().is_some_and(|e| e.eq_ignore_ascii_case("apk"))).collect();
+            if apks.is_empty() {
+                return false;
+            }
+            model.install(apks, &device);
+            true
         });
     }
     toasts.add_controller(drop);
@@ -319,7 +324,7 @@ fn snapshot_for_debugging(window: &adw::ApplicationWindow) {
         let window = window.clone();
         glib::timeout_add_seconds_local_once(5, move || {
             if let Some(list) = find_sections(window.upcast_ref()) {
-                let index = ["overview", "apps", "notifications"].iter().position(|s| *s == section).unwrap_or(0);
+                let index = ["overview", "apps", "notifications", "files"].iter().position(|s| *s == section).unwrap_or(0);
                 list.select_row(list.row_at_index(index as i32).as_ref());
             }
         });

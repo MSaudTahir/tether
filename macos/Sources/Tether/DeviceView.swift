@@ -10,12 +10,14 @@ enum DeviceTab: String, CaseIterable {
     case overview = "Overview"
     case apps = "Apps"
     case notifications = "Notifications"
+    case files = "Files"
 
     var systemImage: String {
         switch self {
         case .overview: "smartphone"
         case .apps: "square.grid.2x2"
         case .notifications: "bell"
+        case .files: "folder"
         }
     }
 }
@@ -34,6 +36,10 @@ struct DeviceView: View {
                 description: Text(stateHints[device.state] ?? "The device is \(device.state).")
             )
         } else {
+            if tab == .files {
+                // The file table scrolls itself.
+                FilesView(device: device)
+            } else {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     switch tab {
@@ -48,6 +54,8 @@ struct DeviceView: View {
                         AppsSection(device: device, search: search)
                     case .notifications:
                         NotificationsList(device: device)
+                    case .files:
+                        EmptyView()
                     }
                 }
                 .padding(28)
@@ -57,6 +65,7 @@ struct DeviceView: View {
                 guard !apks.isEmpty else { return false }
                 model.install(apks, on: device)
                 return true
+            }
             }
         }
     }

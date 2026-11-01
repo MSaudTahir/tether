@@ -5,6 +5,7 @@
 mod adb;
 mod apps;
 mod buddy;
+mod files;
 mod notifications;
 mod session;
 mod toolchain;
@@ -109,6 +110,21 @@ pub struct PhoneNotification {
     /// Milliseconds since 1970, or 0 if the notification doesn't say.
     pub time: u64,
 }
+
+/// A file or folder on the phone.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PhoneFile {
+    pub name: String,
+    pub path: String,
+    pub folder: bool,
+    /// Bytes (folders: the folder entry's own size, not its contents).
+    pub size: u64,
+    /// Seconds since 1970.
+    pub modified: i64,
+}
+
+/// Where the phone's own files (Download, DCIM, Pictures, ...) live.
+pub const PHONE_STORAGE: &str = "/sdcard";
 
 /// Whether Tether Buddy (the optional companion app) is on the phone and enabled.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, uniffi::Enum)]
@@ -341,6 +357,37 @@ impl Core {
         buddy::install(&self.adb()?, &self.data_dir, &serial)
     }
 
+    // --- files -------------------------------------------------------------
+
+    /// A folder's contents, folders first. `hidden` includes names starting with a dot.
+    pub fn list_files(&self, serial: String, path: String, hidden: bool) -> Result<Vec<PhoneFile>> {
+        files::list(&self.adb()?, &serial, &path, hidden)
+    }
+
+    /// Copies a file or folder from the phone into `local_dir` (as "name 2" etc. if taken); returns
+    /// the copy's path.
+    pub fn download_file(&self, serial: String, path: String, local_dir: String) -> Result<String> {
+        files::download(&self.adb()?, &serial, &path, std::path::Path::new(&local_dir))
+    }
+
+    /// Copies a local file or folder into a folder on the phone.
+    pub fn upload_file(&self, serial: String, local_path: String, folder: String) -> Result<()> {
+        files::upload(&self.adb()?, &serial, &local_path, &folder)
+    }
+
+    pub fn make_folder(&self, serial: String, path: String) -> Result<()> {
+        files::make_folder(&self.adb()?, &serial, &path)
+    }
+
+    pub fn rename_file(&self, serial: String, from: String, to: String) -> Result<()> {
+        files::rename(&self.adb()?, &serial, &from, &to)
+    }
+
+    /// Deletes files and folders (with everything in them).
+    pub fn delete_files(&self, serial: String, paths: Vec<String>) -> Result<()> {
+        files::delete(&self.adb()?, &serial, &paths)
+    }
+
     /// The phone's clipboard text; None if it's empty or the phone doesn't let adb read it in the
     /// background (some, e.g. Xiaomi's, don't).
     pub fn phone_clipboard(&self, serial: String) -> Result<Option<String>> {
@@ -473,6 +520,11 @@ impl Core {
 
 fn no_adb() -> CoreError {
     CoreError::Failed("No adb found. Open Setup to choose one.".into())
+}
+
+#[uniffi::export]
+pub fn phone_storage() -> String {
+    PHONE_STORAGE.into()
 }
 
 #[uniffi::export]
