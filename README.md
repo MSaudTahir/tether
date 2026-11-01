@@ -34,7 +34,7 @@ A small desktop app for using your Android phone from your computer, built on
 |---|---|---|
 | macOS 26+ | SwiftUI with Liquid Glass | ✅ Works |
 | Linux (GNOME 46+, e.g. Fedora 40+, Ubuntu 24.04+) | GTK4 + libadwaita | ✅ Works (tested on Fedora 44) |
-| Windows 10/11 (x64, ARM64) | WinUI 3 | 🚧 Builds (in CI); not tried on a PC yet |
+| Windows 10/11 (x64, ARM64) | WinUI 3 | 🚧 Builds and starts (checked in CI); not tried with a phone yet |
 
 [`python/`](python/) has the original cross-platform Qt version, kept until the Windows app works.
 
