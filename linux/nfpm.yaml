@@ -5,7 +5,7 @@ version: ${VERSION}
 arch: ${ARCH}
 platform: linux
 section: utils
-maintainer: Saud Tahir <MSaudTahir@users.noreply.github.com>
+maintainer: Tether contributors <MSaudTahir@users.noreply.github.com>
 description: |
   Use your Android phone from your computer, built on scrcpy: mirror it, open its apps in their
   own windows, and see its notifications, photos and files.

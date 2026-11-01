@@ -32,11 +32,12 @@ A small desktop app for using your Android phone from your computer, built on
 
 | Platform | App | Status |
 |---|---|---|
-| macOS 26+ | SwiftUI with Liquid Glass | ✅ Works |
-| Linux (GNOME 46+, e.g. Fedora 40+, Ubuntu 24.04+) | GTK4 + libadwaita | ✅ Works (tested on Fedora 44) |
+| macOS 26+ (Apple Silicon) | SwiftUI with Liquid Glass | ✅ Works |
+| Linux (GNOME 46+, e.g. Fedora 40+, Ubuntu 24.04+) | GTK4 + libadwaita | ✅ Works (tested on Fedora 44, x86_64) |
 | Windows 10/11 (x64, ARM64) | WinUI 3 | ✅ Works (tested on Windows 11 ARM) |
 
 [`python/`](python/) has the original Qt version this grew out of; it's no longer maintained.
+See [ROADMAP.md](ROADMAP.md) for known limitations and what's next.
 
 ## Requirements
 
@@ -52,11 +53,11 @@ Download the latest release from the [Releases](../../releases) page:
 
 | Platform | File |
 |---|---|
-| macOS 26+ | `Tether-<version>-macos.dmg`: open it and drag Tether to Applications. |
+| macOS 26+ (Apple Silicon) | `Tether-<version>-macos.dmg`: open it and drag Tether to Applications. |
 | Windows | `Tether-<version>-windows-x64-setup.exe` (or `-arm64-`), or the `.zip` to run without installing. |
 | Linux (Debian, Ubuntu) | `tether_<version>_amd64.deb` (or `arm64`): `sudo apt install ./tether_*.deb` |
-| Linux (Fedora, openSUSE) | `tether-<version>.x86_64.rpm` (or `aarch64`): `sudo dnf install ./tether-*.rpm` |
-| Linux (other) | `tether-<version>-linux-x86_64.tar.gz`: the `tether` binary, with a `.desktop` file and icon. |
+| Linux (Fedora, openSUSE) | `tether-<version>-1.x86_64.rpm` (or `aarch64`): `sudo dnf install ./tether-*.rpm` |
+| Linux (other) | `tether-<version>-linux-x86_64.tar.gz` (or `arm64`): the `tether` binary, with a `.desktop` file and icon. |
 
 The builds aren't signed yet, so the first launch needs a click more:
 
@@ -85,8 +86,8 @@ The builds aren't signed yet, so the first launch needs a click more:
 - **Window size** (above the app grid): sizes are in points, like any other window, and shrink to
   fit your screen. *Text size* makes the app's content smaller or larger. *Portrait* suits most
   phone apps.
-- **Resizable** app windows relayout the app as you resize them. They aren't as sharp on Retina /
-  HiDPI screens (a scrcpy limitation); turn Resizable off for the sharpest picture.
+- **Resizable** app windows relayout the app as you resize them. On a Mac they aren't as sharp on
+  Retina screens (a scrcpy limitation); turn Resizable off for the sharpest picture.
 - **Settings** can turn the phone's audio off, or turn its screen off while it's shown (private on
   your desk, and it saves battery). Controls a phone's Android version can't do are disabled.
 - **Capture Mouse** in app windows turns on the phone's *Force desktop mode* developer option so the
@@ -178,6 +179,10 @@ One shared core holds all the logic; each platform gets a thin native UI on top 
 | [`buddy/`](buddy/) | Tether Buddy, the optional companion app (a notification listener). The core embeds the built `buddy.apk`. |
 | [`icon/`](icon/) | The app icon and the script that draws it (`swift icon/make_icon.swift icon/icon.png`). |
 | [`python/`](python/) | The original Qt app (no longer maintained). |
+| [`.github/workflows/`](.github/workflows/) | CI for each platform, and the release build. |
+
+Contributions are welcome: see [CONTRIBUTING.md](CONTRIBUTING.md) for how it's organized and the
+rules.
 
 ### Core
 

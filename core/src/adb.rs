@@ -280,14 +280,14 @@ mod tests {
     #[test]
     fn devices() {
         let out = "List of devices attached\n\
-                   3acb3aa                device usb:34603008X product:apollo_global model:M2007J3SY device:apollo transport_id:9\n\
+                   0a1b2c3d                device usb:1-1 product:apollo_global model:M2007J3SY device:apollo transport_id:9\n\
                    192.168.1.5:5555       unauthorized transport_id:2\n";
         let devices = parse_devices(out);
         assert_eq!(devices.len(), 2);
         assert_eq!((devices[0].label.as_str(), devices[0].wireless), ("M2007J3SY", false));
         assert_eq!((devices[1].state.as_str(), devices[1].wireless), ("unauthorized", true));
-        let tls = parse_devices("adb-3acb3aa-eBd7lh._adb-tls-connect._tcp device model:M2007J3SY\n");
-        assert_eq!((tls[0].short_serial.as_str(), tls[0].wireless), ("3acb3aa", true));
+        let tls = parse_devices("adb-0a1b2c3d-AbCdEf._adb-tls-connect._tcp device model:M2007J3SY\n");
+        assert_eq!((tls[0].short_serial.as_str(), tls[0].wireless), ("0a1b2c3d", true));
     }
 
     #[test]
@@ -299,7 +299,7 @@ mod tests {
             ==display\nPhysical size: 1080x2400\nPhysical density: 440\nOverride density: 400\n\
             ==uptime\n22623.83 136384.28\n==night\nNight mode: yes\n\
             ==power\nmWakefulness=Awake\n==zen\n1\n\
-            ==ip\n47: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500\n    inet 192.168.100.85/24 brd 192.168.100.255 scope global dynamic wlan0\n";
+            ==ip\n47: wlan0: <BROADCAST,MULTICAST,UP,LOWER_UP> mtu 1500\n    inet 192.168.1.42/24 brd 192.168.1.255 scope global dynamic wlan0\n";
         let info = parse_info(out);
         assert_eq!(info.name, "M2007J3SY");
         assert_eq!(info.model, "Xiaomi M2007J3SY");
@@ -311,7 +311,7 @@ mod tests {
         assert_eq!((info.storage_total, info.storage_used), (112203740 * 1024, 110262804 * 1024));
         assert_eq!(info.screen, "1080 × 2400 · 400 dpi");
         assert_eq!(info.uptime_seconds, 22623);
-        assert_eq!(info.wifi_address.as_deref(), Some("192.168.100.85"));
+        assert_eq!(info.wifi_address.as_deref(), Some("192.168.1.42"));
         assert!(info.dark_mode && info.stay_awake && info.screen_on && info.do_not_disturb);
 
         let empty = parse_info("");
