@@ -1,0 +1,87 @@
+# Builds every app on every push and pull request, so breakage shows up right away.
+name: Build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - run: cargo test --release
+        working-directory: core
+
+  macos:
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - name: Build Tether.app
+        run: |
+          export DEVELOPER_DIR="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)/Contents/Developer"
+          macos/build.sh
+
+  linux:
+    # 24.04 has GNOME 46's GTK and libadwaita, the oldest Tether supports.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: linux
+      - run: cargo build --release
+        working-directory: linux
+
+  windows:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: windows-latest, arch: x64 }
+          - { runner: windows-11-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: core
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - name: C# bindings generator
+        uses: actions/cache@v4
+        id: bindgen
+        with:
+          path: ~/.cargo/bin/uniffi-bindgen-cs*
+          key: uniffi-bindgen-cs-v0.10.0-${{ runner.os }}-${{ matrix.arch }}
+      - if: steps.bindgen.outputs.cache-hit != 'true'
+        run: cargo install uniffi-bindgen-cs --locked --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.10.0+v0.29.4
+      - name: clang (ring needs it on ARM64)
+        if: matrix.arch == 'arm64'
+        shell: pwsh
+        run: |
+          if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
+            choco install llvm -y --no-progress
+            "C:\Program Files\LLVM\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          }
+      - name: Build Tether.exe
+        shell: pwsh
+        run: windows\build.ps1 -Arch ${{ matrix.arch }}
