@@ -159,6 +159,10 @@ Core calls block (they run adb, scrcpy or downloads), so the UIs call them off t
 `helper/helper.dex` is checked in, so you only need this if you change `Helper.java`.
 `helper/build.sh` rebuilds it; it needs a JDK and the Android SDK (`d8`).
 
+## License
+
+Tether is licensed under the [Apache License 2.0](LICENSE).
+
 ## Thanks
 
 Special thanks to [**Genymobile**](https://www.genymobile.com) (the makers of Genymotion) and
