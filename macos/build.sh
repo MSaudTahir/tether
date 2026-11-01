@@ -25,6 +25,10 @@ rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
 cp ".build/$CONFIG/Tether" "$APP/Contents/MacOS/"
 cp Info.plist "$APP/Contents/"
+# Releases set the version from their tag.
+if [ -n "$TETHER_VERSION" ]; then
+  /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString $TETHER_VERSION" "$APP/Contents/Info.plist"
+fi
 ICONSET=build/AppIcon.iconset
 mkdir -p "$ICONSET" "$APP/Contents/Resources"
 for px in 16 32 128 256 512; do

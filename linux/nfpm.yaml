@@ -1,0 +1,25 @@
+# Packages the Linux app as .deb and .rpm: nfpm package -f linux/nfpm.yaml -p deb (or rpm).
+# VERSION and ARCH (amd64 or arm64) come from the environment.
+name: tether
+version: ${VERSION}
+arch: ${ARCH}
+platform: linux
+section: utils
+maintainer: Saud Tahir <MSaudTahir@users.noreply.github.com>
+description: |
+  Use your Android phone from your computer, built on scrcpy: mirror it, open its apps in their
+  own windows, and see its notifications, photos and files.
+homepage: https://github.com/MSaudTahir/tether
+license: Apache-2.0
+contents:
+  - src: linux/target/release/tether
+    dst: /usr/bin/tether
+  - src: linux/io.github.msaudtahir.Tether.desktop
+    dst: /usr/share/applications/io.github.msaudtahir.Tether.desktop
+  - src: linux/io.github.msaudtahir.Tether.png
+    dst: /usr/share/icons/hicolor/256x256/apps/io.github.msaudtahir.Tether.png
+overrides:
+  deb:
+    depends: [libgtk-4-1, libadwaita-1-0]
+  rpm:
+    depends: [gtk4, libadwaita]

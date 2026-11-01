@@ -243,14 +243,14 @@ sealed class AppModel
         }
     }
 
-    public void SetDarkMode(bool on, Device device) => Update(device, () => Core.SetDarkMode(device.serial, on));
+    public void SetDarkMode(bool on, Device device) => UpdateDevice(device, () => Core.SetDarkMode(device.serial, on));
 
-    public void SetStayAwake(bool on, Device device) => Update(device, () => Core.SetStayAwake(device.serial, on));
+    public void SetStayAwake(bool on, Device device) => UpdateDevice(device, () => Core.SetStayAwake(device.serial, on));
 
     public void Reboot(Device device, RebootMode mode) => Run(() => Core.Reboot(device.serial, mode));
 
     /// Changes a device setting, then reloads its info to show the result.
-    async void Update(Device device, Action action)
+    async void UpdateDevice(Device device, Action action)
     {
         try { await Task.Run(action); }
         catch (Exception e) { Alert?.Invoke(e.Message); }

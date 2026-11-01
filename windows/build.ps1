@@ -1,6 +1,9 @@
 # Builds the Rust core, generates its C# bindings, builds the app and puts it in build\Tether-<arch>.
-# Usage: .\build.ps1 [-Arch arm64|x64]   (default: this PC's architecture)
-param([string]$Arch = $(if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }))
+# Usage: .\build.ps1 [-Arch arm64|x64] [-Version 1.0.0]   (default: this PC's architecture)
+param(
+    [string]$Arch = $(if ($env:PROCESSOR_ARCHITECTURE -eq "ARM64") { "arm64" } else { "x64" }),
+    [string]$Version = ""
+)
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
 
@@ -19,6 +22,7 @@ if (-not (Test-Path Generated\tether_core.cs)) { throw "Generated\tether_core.cs
 New-Item -ItemType Directory -Force .rust\win-$Arch | Out-Null
 Copy-Item ..\core\target\$target\release\tether_core.dll .rust\win-$Arch\
 
-dotnet publish -c Release -r win-$Arch -p:Platform=$Arch -o build\Tether-$Arch
+$versionArg = if ($Version) { "-p:Version=$Version" } else { "-p:Version=0.0.0-dev" }
+dotnet publish -c Release -r win-$Arch -p:Platform=$Arch $versionArg -o build\Tether-$Arch
 if ($LASTEXITCODE) { throw "dotnet publish failed" }
 Write-Host "Built windows\build\Tether-$Arch\Tether.exe"

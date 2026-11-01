@@ -1,43 +1,114 @@
+# Pushing a tag like v1.0.0 builds every app and makes a draft GitHub release with them, to check
+# and publish by hand.
 name: Release
 
 on:
   push:
     tags: ["v*"]
-  workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
-  build:
-    strategy:
-      matrix:
-        # macos-latest is Apple Silicon, macos-15-intel is Intel; ubuntu-22.04 keeps glibc requirements low.
-        os: [macos-latest, macos-15-intel, windows-latest, ubuntu-22.04]
-    runs-on: ${{ matrix.os }}
-    defaults:
-      run:
-        working-directory: python  # the Python app, until the native UIs replace it
+  macos:
+    runs-on: macos-26
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
-      - run: pip install -e ".[build]"
-      - run: python build.py
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Tether.app
+        run: |
+          export DEVELOPER_DIR="$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)/Contents/Developer"
+          TETHER_VERSION="${GITHUB_REF_NAME#v}" macos/build.sh
+      - name: Disk image
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          mkdir dmg && cp -R macos/build/Tether.app dmg/ && ln -s /Applications dmg/Applications
+          hdiutil create -volname Tether -srcfolder dmg -ov -format UDZO "Tether-$VERSION-macos.dmg"
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.os }}
-          path: python/dist/MyDevice-*
+          name: macos
+          path: Tether-*-macos.dmg
+
+  windows:
+    strategy:
+      matrix:
+        include:
+          - { runner: windows-latest, arch: x64 }
+          - { runner: windows-11-arm, arch: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 9.0.x
+      - run: cargo install uniffi-bindgen-cs --locked --git https://github.com/NordSecurity/uniffi-bindgen-cs --tag v0.10.0+v0.29.4
+      - name: clang and Inno Setup
+        shell: pwsh
+        run: |
+          if (-not (Get-Command clang -ErrorAction SilentlyContinue)) {
+            choco install llvm -y --no-progress
+            "C:\Program Files\LLVM\bin" | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+          }
+          if (-not (Test-Path "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe")) { choco install innosetup -y --no-progress }
+      - name: Build, zip and installer
+        shell: pwsh
+        run: |
+          $version = "$env:GITHUB_REF_NAME".TrimStart("v")
+          windows\build.ps1 -Arch ${{ matrix.arch }} -Version $version
+          Compress-Archive -Path "windows\build\Tether-${{ matrix.arch }}\*" -DestinationPath "Tether-$version-windows-${{ matrix.arch }}.zip"
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" /Q "/DVersion=$version" "/DArch=${{ matrix.arch }}" windows\installer.iss
+          if ($LASTEXITCODE) { throw "Inno Setup failed" }
+          Move-Item "windows\build\Tether-$version-windows-${{ matrix.arch }}-setup.exe" .
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-${{ matrix.arch }}
+          path: |
+            Tether-*.zip
+            Tether-*-setup.exe
+
+  linux:
+    strategy:
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, arch: amd64, nfpm: x86_64, name: x86_64 }
+          - { runner: ubuntu-24.04-arm, arch: arm64, nfpm: arm64, name: arm64 }
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev libadwaita-1-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release
+        working-directory: linux
+      - name: Packages
+        env:
+          ARCH: ${{ matrix.arch }}
+        run: |
+          export VERSION="${GITHUB_REF_NAME#v}"
+          curl -sSfL "https://github.com/goreleaser/nfpm/releases/download/v2.48.0/nfpm_2.48.0_Linux_${{ matrix.nfpm }}.tar.gz" | tar -xz nfpm
+          ./nfpm package -f linux/nfpm.yaml -p deb -t .
+          ./nfpm package -f linux/nfpm.yaml -p rpm -t .
+          DIR="tether-$VERSION-linux-${{ matrix.name }}"
+          mkdir "$DIR"
+          cp linux/target/release/tether linux/io.github.msaudtahir.Tether.desktop linux/io.github.msaudtahir.Tether.png LICENSE "$DIR/"
+          tar -czf "$DIR.tar.gz" "$DIR"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-${{ matrix.name }}
+          path: |
+            *.deb
+            *.rpm
+            tether-*.tar.gz
 
   release:
-    if: startsWith(github.ref, 'refs/tags/')
-    needs: build
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
+    needs: [macos, windows, linux]
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/download-artifact@v4
         with:
           path: dist
           merge-multiple: true
-      - run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --generate-notes
+      - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" dist/* --repo "$GITHUB_REPOSITORY" --draft --title "Tether ${GITHUB_REF_NAME#v}" --generate-notes

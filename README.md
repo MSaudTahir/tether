@@ -48,11 +48,22 @@ A small desktop app for using your Android phone from your computer, built on
 
 ## Install
 
-There are no releases yet: build Tether from source (below). Builds will be published on the
-[Releases](../../releases) page.
+Download the latest release from the [Releases](../../releases) page (the first one, 1.0, is
+coming; until then, [build from source](#building-from-source)):
 
-The macOS app isn't notarized, so macOS will block it the first time. Right-click the app and
-choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/Tether.app`.
+| Platform | File |
+|---|---|
+| macOS 26+ | `Tether-<version>-macos.dmg`: open it and drag Tether to Applications. |
+| Windows | `Tether-<version>-windows-x64-setup.exe` (or `-arm64-`), or the `.zip` to run without installing. |
+| Linux (Debian, Ubuntu) | `tether_<version>_amd64.deb` (or `arm64`): `sudo apt install ./tether_*.deb` |
+| Linux (Fedora, openSUSE) | `tether-<version>.x86_64.rpm` (or `aarch64`): `sudo dnf install ./tether-*.rpm` |
+| Linux (other) | `tether-<version>-linux-x86_64.tar.gz`: the `tether` binary, with a `.desktop` file and icon. |
+
+The builds aren't signed yet, so the first launch needs a click more:
+
+- **macOS** blocks the app at first: right-click it and choose **Open**, or run
+  `xattr -dr com.apple.quarantine /Applications/Tether.app`.
+- **Windows** SmartScreen may warn about an unknown publisher: choose **More info → Run anyway**.
 
 ## Using it
 
