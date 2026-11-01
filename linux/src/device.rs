@@ -15,8 +15,11 @@ pub struct DevicePage {
     search: gtk::SearchEntry,
     stack: gtk::Stack,
     empty: adw::StatusPage,
-    /// Header, controls and details, rebuilt on each render.
+    /// Header and controls, rebuilt on each render.
     top: gtk::Box,
+    notifications_page: adw::ViewStackPage,
+    notifications_box: gtk::Box,
+    details_box: gtk::Box,
     apps_count: gtk::Label,
     apps_hint: gtk::Label,
     apps_state: gtk::Stack,
@@ -59,14 +62,22 @@ impl DevicePage {
         apps_state.add_named(&apps_error, Some("error"));
         apps_state.add_named(&grid, Some("apps"));
 
-        let body = gtk::Box::new(gtk::Orientation::Vertical, 14);
-        body.append(&top);
         let apps = gtk::Box::new(gtk::Orientation::Vertical, 10);
-        apps.set_margin_top(14);
         apps.append(&title_row);
         apps.append(&apps_hint);
         apps.append(&apps_state);
-        body.append(&apps);
+        let notifications_box = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        let details_box = gtk::Box::new(gtk::Orientation::Vertical, 10);
+        let tabs = adw::ViewStack::builder().vhomogeneous(false).build();
+        tabs.add_titled_with_icon(&apps, Some("apps"), "Apps", "view-app-grid-symbolic");
+        let notifications_page = tabs.add_titled_with_icon(&notifications_box, Some("notifications"), "Notifications", "preferences-system-notifications-symbolic");
+        tabs.add_titled_with_icon(&details_box, Some("phone"), "Phone", "help-about-symbolic");
+        let switcher = adw::ViewSwitcher::builder().stack(&tabs).policy(adw::ViewSwitcherPolicy::Wide).halign(gtk::Align::Center).build();
+
+        let body = gtk::Box::new(gtk::Orientation::Vertical, 14);
+        body.append(&top);
+        body.append(&switcher);
+        body.append(&tabs);
         let clamp = adw::Clamp::builder().maximum_size(1400).tightening_threshold(1000).child(&body).build();
         clamp.set_margin_top(24);
         clamp.set_margin_bottom(24);
@@ -84,6 +95,9 @@ impl DevicePage {
             stack,
             empty,
             top,
+            notifications_page,
+            notifications_box,
+            details_box,
             apps_count,
             apps_hint,
             apps_state,
@@ -132,8 +146,11 @@ impl DevicePage {
         self.top.append(&self.header(&device, info.as_ref()));
         if let Some(info) = &info {
             self.top.append(&self.controls(&device, info));
-            self.top.append(&details(info));
         }
+        replace_children(&self.details_box, info.as_ref().map(details));
+        replace_children(&self.notifications_box, Some(self.notifications(&device)));
+        let count = self.model.notifications.borrow().get(&device.serial).map_or(0, Vec::len);
+        self.notifications_page.set_badge_number(count as u32);
 
         let supported = info.as_ref().map_or(true, |i| i.sdk >= virtual_display_min_sdk());
         self.apps_hint.set_label(if supported { "Click an app to open it in its own window." } else { "App windows need Android 10 or newer." });
@@ -311,6 +328,43 @@ impl DevicePage {
         card.upcast()
     }
 
+    /// The phone's current notifications; clicking one opens its app.
+    fn notifications(&self, device: &Device) -> gtk::Widget {
+        let all = self.model.notifications.borrow().get(&device.serial).cloned().unwrap_or_default();
+        if all.is_empty() {
+            return adw::StatusPage::builder()
+                .icon_name("preferences-system-notifications-symbolic")
+                .title("No Notifications")
+                .description("Notifications on the phone show up here.")
+                .build()
+                .upcast();
+        }
+        let list = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).css_classes(["boxed-list"]).build();
+        for notification in all {
+            let app_name = if notification.app_name.is_empty() { notification.package.clone() } else { notification.app_name.clone() };
+            let when = glib::DateTime::from_unix_local((notification.time / 1000) as i64)
+                .ok()
+                .and_then(|t| t.format("%H:%M").ok())
+                .map(|t| t.to_string())
+                .unwrap_or_default();
+            let row = adw::ActionRow::builder()
+                .title(glib::markup_escape_text(if notification.title.is_empty() { &app_name } else { &notification.title }))
+                .subtitle(glib::markup_escape_text(&notification.text))
+                .subtitle_lines(3)
+                .activatable(true)
+                .tooltip_text(format!("Open {app_name}"))
+                .build();
+            let icon = app_tile_icon(&DeviceApp { name: app_name.clone(), package: notification.package.clone(), system: false, icon_path: notification.icon_path.clone() }, 32);
+            row.add_prefix(&icon);
+            let meta = gtk::Label::builder().label(format!("{app_name} · {when}")).css_classes(["caption", "dim-label"]).valign(gtk::Align::Start).build();
+            row.add_suffix(&meta);
+            let (model, device) = (self.model.clone(), device.clone());
+            row.connect_activated(move |_| model.open_notification(&notification, &device));
+            list.append(&row);
+        }
+        list.upcast()
+    }
+
     fn render_apps(&self, apps: Option<Rc<Vec<DeviceApp>>>) {
         let search = self.search.text().trim().to_lowercase();
         {
@@ -445,22 +499,7 @@ fn app_tile(app: &DeviceApp) -> gtk::Widget {
     tile.set_margin_bottom(4);
     tile.set_width_request(96);
     tile.set_tooltip_text(Some(&app.package));
-    let icon: gtk::Widget = match &app.icon_path {
-        Some(path) => gtk::Picture::builder()
-            .paintable(&gdk::Texture::from_filename(path).map(|t| t.upcast::<gdk::Paintable>()).unwrap_or_else(|_| gdk::Paintable::new_empty(56, 56)))
-            .width_request(56)
-            .height_request(56)
-            .content_fit(gtk::ContentFit::Contain)
-            .halign(gtk::Align::Center)
-            .build()
-            .upcast(),
-        None => {
-            let letter = adw::Avatar::new(56, Some(&app.name), true);
-            letter.set_halign(gtk::Align::Center);
-            letter.upcast()
-        }
-    };
-    tile.append(&icon);
+    tile.append(&app_tile_icon(app, 56));
     tile.append(
         &gtk::Label::builder()
             .label(&app.name)
@@ -504,4 +543,34 @@ fn capitalized(text: &str) -> String {
 
 fn bytes(count: u64) -> String {
     glib::format_size(count).to_string()
+}
+
+/// The app's cached icon, or its initials on a color.
+fn app_tile_icon(app: &DeviceApp, size: i32) -> gtk::Widget {
+    match &app.icon_path {
+        Some(path) => gtk::Picture::builder()
+            .paintable(&gdk::Texture::from_filename(path).map(|t| t.upcast::<gdk::Paintable>()).unwrap_or_else(|_| gdk::Paintable::new_empty(size, size)))
+            .width_request(size)
+            .height_request(size)
+            .content_fit(gtk::ContentFit::Contain)
+            .halign(gtk::Align::Center)
+            .valign(gtk::Align::Center)
+            .build()
+            .upcast(),
+        None => {
+            let letter = adw::Avatar::new(size, Some(&app.name), true);
+            letter.set_halign(gtk::Align::Center);
+            letter.set_valign(gtk::Align::Center);
+            letter.upcast()
+        }
+    }
+}
+
+fn replace_children(container: &gtk::Box, child: Option<gtk::Widget>) {
+    while let Some(old) = container.first_child() {
+        container.remove(&old);
+    }
+    if let Some(child) = child {
+        container.append(&child);
+    }
 }

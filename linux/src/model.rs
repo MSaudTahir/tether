@@ -26,6 +26,7 @@ pub struct Model {
     pub apps: RefCell<HashMap<String, Rc<Vec<DeviceApp>>>>,
     pub loading_apps: RefCell<HashSet<String>>,
     pub app_errors: RefCell<HashMap<String, String>>,
+    pub notifications: RefCell<HashMap<String, Vec<PhoneNotification>>>,
     pub installing: RefCell<HashSet<String>>,
     pub update: RefCell<Option<Release>>,
     pub installing_update: Cell<bool>,
@@ -52,6 +53,7 @@ impl Model {
             apps: Default::default(),
             loading_apps: Default::default(),
             app_errors: Default::default(),
+            notifications: Default::default(),
             installing: Default::default(),
             update: Default::default(),
             installing_update: Cell::new(false),
@@ -110,7 +112,12 @@ impl Model {
             model.check_for_update();
             for tick in 1u64.. {
                 model.refresh_devices().await;
-                // Keep battery, memory etc. current for the device on screen.
+                // Keep notifications, battery, memory etc. current for the device on screen.
+                if tick % 3 == 0 {
+                    if let Some(serial) = model.selection.borrow().clone() {
+                        model.load_notifications(&serial).await;
+                    }
+                }
                 if tick % 15 == 0 {
                     if let Some(serial) = model.selection.borrow().clone() {
                         model.load_info(&serial).await;
@@ -161,6 +168,7 @@ impl Model {
             glib::spawn_future_local(async move {
                 model.load_info(&device.serial).await;
                 model.load_apps(&device.serial, false).await;
+                model.load_notifications(&device.serial).await; // after the apps, which give them names and icons
             });
         }
     }
@@ -186,6 +194,30 @@ impl Model {
             self.info.borrow_mut().insert(serial, info);
             self.changed();
         }
+    }
+
+    async fn load_notifications(&self, serial: &str) {
+        if !self.devices.borrow().iter().any(|d| d.serial == serial && d.state == "device") {
+            return;
+        }
+        let (core, owned) = (self.core.clone(), serial.to_string());
+        if let Ok(list) = off_main(move || core.notifications(owned)).await {
+            if self.notifications.borrow().get(serial) != Some(&list) {
+                self.notifications.borrow_mut().insert(serial.into(), list);
+                self.changed();
+            }
+        }
+    }
+
+    /// Opens the notification's app: in its own window if the phone supports that, else mirrored.
+    pub fn open_notification(self: &Rc<Self>, notification: &PhoneNotification, device: &Device) {
+        let supported = self.info.borrow().get(&device.serial).is_some_and(|i| i.sdk >= virtual_display_min_sdk());
+        if !supported {
+            return self.mirror(device);
+        }
+        let app = self.apps.borrow().get(&device.serial).and_then(|apps| apps.iter().find(|a| a.package == notification.package).cloned());
+        let app = app.unwrap_or(DeviceApp { name: notification.app_name.clone(), package: notification.package.clone(), system: false, icon_path: None });
+        self.open(&app, device);
     }
 
     async fn load_apps(&self, serial: &str, force: bool) {
