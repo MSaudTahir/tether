@@ -67,6 +67,7 @@ jobs:
         if: matrix.arch == 'x64'
         shell: pwsh
         run: |
+          Get-ChildItem windows\build\Tether-x64 -Filter *.pri | ForEach-Object { "$($_.Name) $($_.Length)" }
           $app = Start-Process "windows\build\Tether-x64\Tether.exe" -PassThru
           Start-Sleep 25
           Add-Type -AssemblyName System.Windows.Forms, System.Drawing
@@ -89,6 +90,7 @@ jobs:
           if-no-files-found: ignore
       # To try a build on a PC: download it from the run's page.
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
           name: tether-windows-${{ matrix.arch }}
           path: windows/build/Tether-${{ matrix.arch }}

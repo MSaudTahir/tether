@@ -13,6 +13,8 @@
     <UseWinUI>true</UseWinUI>
     <!-- A plain folder with Tether.exe: no MSIX, no runtime installs. -->
     <WindowsPackageType>None</WindowsPackageType>
+    <!-- Still needed without MSIX: it builds Tether.pri, from which the XAML (App.xaml and WinUI's styles) loads. -->
+    <EnableMsixTooling>true</EnableMsixTooling>
     <WindowsAppSDKSelfContained>true</WindowsAppSDKSelfContained>
     <SelfContained>true</SelfContained>
     <Nullable>enable</Nullable>
