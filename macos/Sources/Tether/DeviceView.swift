@@ -24,7 +24,7 @@ struct DeviceView: View {
     @Environment(AppModel.self) private var model
     let device: Device
     let search: String
-    @State private var tab = DeviceTab.apps
+    let tab: DeviceTab
 
     var body: some View {
         if device.state != "device" {
@@ -34,35 +34,34 @@ struct DeviceView: View {
                 description: Text(stateHints[device.state] ?? "The device is \(device.state).")
             )
         } else {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 28) {
+            // The phone's header and controls stay put; the section below scrolls.
+            VStack(spacing: 0) {
+                VStack(alignment: .leading, spacing: 16) {
                     DeviceHeader(device: device, info: model.info[device.serial])
                     if let info = model.info[device.serial] {
                         ControlsCard(device: device, info: info)
                     }
-                    Picker("Section", selection: $tab) {
-                        ForEach(DeviceTab.allCases, id: \.self) { tab in
-                            Label(title(tab), systemImage: tab.systemImage).tag(tab)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .labelsHidden()
-                    .fixedSize()
-                    .frame(maxWidth: .infinity)
-                    switch tab {
-                    case .apps:
-                        AppsSection(device: device, search: search)
-                    case .notifications:
-                        NotificationsList(device: device)
-                    case .phone:
-                        if let info = model.info[device.serial] {
-                            DetailsCard(info: info)
-                        } else {
-                            ProgressView().frame(maxWidth: .infinity, minHeight: 120)
-                        }
-                    }
                 }
-                .padding(28)
+                .padding([.horizontal, .top], 28)
+                .padding(.bottom, 12)
+                ScrollView {
+                    Group {
+                        switch tab {
+                        case .apps:
+                            AppsSection(device: device, search: search)
+                        case .notifications:
+                            NotificationsList(device: device)
+                        case .phone:
+                            if let info = model.info[device.serial] {
+                                DetailsCard(info: info)
+                            } else {
+                                ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+                            }
+                        }
+                    }
+                    .padding([.horizontal, .bottom], 28)
+                    .padding(.top, 12)
+                }
             }
             .dropDestination(for: URL.self) { urls, _ in
                 let apks = urls.filter { $0.pathExtension.lowercased() == "apk" }
@@ -71,11 +70,6 @@ struct DeviceView: View {
                 return true
             }
         }
-    }
-
-    private func title(_ tab: DeviceTab) -> String {
-        guard tab == .notifications, let count = model.notifications[device.serial]?.count, count > 0 else { return tab.rawValue }
-        return "\(tab.rawValue) (\(count))"
     }
 }
 

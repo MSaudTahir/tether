@@ -51,9 +51,10 @@ choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/Tether.app
 2. Connect your phone with USB and accept the *Allow USB debugging?* prompt on the phone. For Wi-Fi,
    use **Pair** (Developer options → Wireless debugging → *Pair device with pairing code*), or
    press **Go Wireless** while connected by USB.
-3. Select the phone in the sidebar. Its page has the controls on top and tabs below: **Apps**
-   (click one to open it in its own window), **Notifications** and **Phone** (details). Use
-   **Mirror Screen** for the whole screen. **Refresh** reloads the app list; it's cached until then.
+3. The sidebar shows the phone (switch phones or pair one from its menu) and its sections:
+   **Apps** (click one to open it in its own window), **Notifications** and **Phone** (details).
+   The phone's header and controls stay on top. Use **Mirror Screen** for the whole screen.
+   **Refresh** reloads the app list; it's cached until then.
 
 | | macOS | Linux / Windows |
 |---|---|---|
