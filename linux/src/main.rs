@@ -36,12 +36,54 @@ fn build(app: &adw::Application) {
     gtk::style_context_add_provider_for_display(&gdk::Display::default().unwrap(), &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     let model = Model::new();
 
-    // Sidebar: devices.
-    let devices = gtk::ListBox::new();
-    devices.add_css_class("navigation-sidebar");
+    // Sidebar, like GNOME Settings: the phone up top (a menu switches phones), its sections below.
+    let picker_title = gtk::Label::builder().xalign(0.0).ellipsize(gtk::pango::EllipsizeMode::End).css_classes(["heading"]).build();
+    let picker_subtitle = gtk::Label::builder().xalign(0.0).ellipsize(gtk::pango::EllipsizeMode::End).css_classes(["caption", "dim-label"]).build();
+    let picker_text = gtk::Box::new(gtk::Orientation::Vertical, 2);
+    picker_text.set_hexpand(true);
+    picker_text.append(&picker_title);
+    picker_text.append(&picker_subtitle);
+    let picker_content = gtk::Box::new(gtk::Orientation::Horizontal, 10);
+    picker_content.append(&gtk::Image::builder().icon_name("phone-symbolic").pixel_size(24).build());
+    picker_content.append(&picker_text);
+    picker_content.append(&gtk::Image::from_icon_name("pan-down-symbolic"));
+    let devices = gtk::ListBox::builder().selection_mode(gtk::SelectionMode::None).build();
+    let pair_from_menu = gtk::Button::builder().label("Pair over Wi-Fi…").css_classes(["flat"]).build();
+    let picker_menu = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    picker_menu.append(&devices);
+    picker_menu.append(&gtk::Separator::new(gtk::Orientation::Horizontal));
+    picker_menu.append(&pair_from_menu);
+    let picker_popover = gtk::Popover::builder().child(&picker_menu).build();
+    let picker = gtk::MenuButton::builder().child(&picker_content).popover(&picker_popover).tooltip_text("Switch phones").css_classes(["flat"]).build();
+    picker.set_margin_start(6);
+    picker.set_margin_end(6);
+
+    let sections = gtk::ListBox::new();
+    sections.add_css_class("navigation-sidebar");
+    let notification_count = gtk::Label::builder().css_classes(["dim-label", "caption"]).build();
+    for (name, title, icon) in [
+        ("apps", "Apps", "view-app-grid-symbolic"),
+        ("notifications", "Notifications", "preferences-system-notifications-symbolic"),
+        ("phone", "Phone", "help-about-symbolic"),
+    ] {
+        let row = gtk::Box::new(gtk::Orientation::Horizontal, 12);
+        row.set_margin_top(6);
+        row.set_margin_bottom(6);
+        row.append(&gtk::Image::from_icon_name(icon));
+        row.append(&gtk::Label::builder().label(title).xalign(0.0).hexpand(true).build());
+        if name == "notifications" {
+            row.append(&notification_count);
+        }
+        let item = gtk::ListBoxRow::builder().child(&row).name(name).build();
+        sections.append(&item);
+    }
+    sections.select_row(sections.row_at_index(0).as_ref());
+    let sidebar_box = gtk::Box::new(gtk::Orientation::Vertical, 6);
+    sidebar_box.append(&picker);
+    sidebar_box.append(&sections);
     let sidebar = adw::ToolbarView::new();
     sidebar.add_top_bar(&adw::HeaderBar::new());
-    sidebar.set_content(Some(&gtk::ScrolledWindow::builder().child(&devices).vexpand(true).build()));
+    sidebar.set_content(Some(&gtk::ScrolledWindow::builder().child(&sidebar_box).vexpand(true).build()));
 
     // Content: the selected device.
     let header = adw::HeaderBar::new();
@@ -136,10 +178,24 @@ fn build(app: &adw::Application) {
         update.connect_clicked(move |_| model.install_update());
     }
     {
-        let model = model.clone();
-        devices.connect_row_selected(move |_, row| {
+        let (model, popover) = (model.clone(), picker_popover.clone());
+        devices.connect_row_activated(move |_, row| {
+            popover.popdown();
+            model.select(Some(row.widget_name().to_string()));
+        });
+    }
+    {
+        let (model, window, popover) = (model.clone(), window.clone(), picker_popover.clone());
+        pair_from_menu.connect_clicked(move |_| {
+            popover.popdown();
+            dialogs::show_pair(&model, &window);
+        });
+    }
+    {
+        let page = page.clone();
+        sections.connect_row_selected(move |_, row| {
             if let Some(row) = row {
-                model.select(Some(row.widget_name().to_string()));
+                page.show_section(&row.widget_name());
             }
         });
     }
@@ -188,25 +244,29 @@ fn build(app: &adw::Application) {
                 .map(|d| (d.serial.clone(), format!("{}\n{}", model.name(d), device_subtitle(&model, d))))
                 .collect();
             if *shown_devices.borrow() != rows {
-                while let Some(child) = devices.first_child() {
-                    devices.remove(&child);
-                }
+                devices.remove_all();
                 for device in model.devices.borrow().iter() {
-                    let row = adw::ActionRow::builder().title(model.name(device)).subtitle(device_subtitle(&model, device)).build();
+                    let row = adw::ActionRow::builder().title(model.name(device)).subtitle(device_subtitle(&model, device)).activatable(true).build();
                     row.add_prefix(&gtk::Image::from_icon_name("phone-symbolic"));
                     row.set_widget_name(&device.serial);
                     devices.append(&row);
                 }
                 *shown_devices.borrow_mut() = rows;
             }
-            let selected = model.selection.borrow().clone();
-            let mut child = devices.first_child();
-            while let Some(row) = child {
-                if Some(row.widget_name().to_string()) == selected {
-                    devices.select_row(row.downcast_ref::<gtk::ListBoxRow>());
+            match model.selected_device() {
+                Some(device) => {
+                    picker_title.set_label(&model.name(&device));
+                    picker_subtitle.set_label(&device_subtitle(&model, &device));
                 }
-                child = row.next_sibling();
+                None => {
+                    picker_title.set_label("No Phone");
+                    picker_subtitle.set_label("Connect or pair a phone");
+                }
             }
+            let ready = model.selected_device().is_some_and(|d| d.state == "device");
+            sections.set_visible(ready);
+            let count = model.selection.borrow().as_ref().and_then(|s| model.notifications.borrow().get(s).map(Vec::len)).unwrap_or(0);
+            notification_count.set_label(&if count > 0 { count.to_string() } else { String::new() });
             page.render();
         }
     };

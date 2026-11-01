@@ -17,7 +17,7 @@ pub struct DevicePage {
     empty: adw::StatusPage,
     /// Header and controls, rebuilt on each render.
     top: gtk::Box,
-    notifications_page: adw::ViewStackPage,
+    tabs: adw::ViewStack,
     notifications_box: gtk::Box,
     details_box: gtk::Box,
     apps_count: gtk::Label,
@@ -70,24 +70,29 @@ impl DevicePage {
         let details_box = gtk::Box::new(gtk::Orientation::Vertical, 10);
         let tabs = adw::ViewStack::builder().vhomogeneous(false).build();
         tabs.add_titled_with_icon(&apps, Some("apps"), "Apps", "view-app-grid-symbolic");
-        let notifications_page = tabs.add_titled_with_icon(&notifications_box, Some("notifications"), "Notifications", "preferences-system-notifications-symbolic");
+        tabs.add_titled_with_icon(&notifications_box, Some("notifications"), "Notifications", "preferences-system-notifications-symbolic");
         tabs.add_titled_with_icon(&details_box, Some("phone"), "Phone", "help-about-symbolic");
-        let switcher = adw::ViewSwitcher::builder().stack(&tabs).policy(adw::ViewSwitcherPolicy::Wide).halign(gtk::Align::Center).build();
-
-        let body = gtk::Box::new(gtk::Orientation::Vertical, 14);
-        body.append(&top);
-        body.append(&switcher);
-        body.append(&tabs);
-        let clamp = adw::Clamp::builder().maximum_size(1400).tightening_threshold(1000).child(&body).build();
-        clamp.set_margin_top(24);
-        clamp.set_margin_bottom(24);
-        clamp.set_margin_start(24);
-        clamp.set_margin_end(24);
-        let scroll = gtk::ScrolledWindow::builder().child(&clamp).hscrollbar_policy(gtk::PolicyType::Never).vexpand(true).build();
+        // The phone's header and controls stay put; the section below scrolls.
+        let clamped = |child: &gtk::Widget, top: i32, bottom: i32| {
+            let clamp = adw::Clamp::builder().maximum_size(1400).tightening_threshold(1000).child(child).build();
+            clamp.set_margin_top(top);
+            clamp.set_margin_bottom(bottom);
+            clamp.set_margin_start(24);
+            clamp.set_margin_end(24);
+            clamp
+        };
+        let scroll = gtk::ScrolledWindow::builder()
+            .child(&clamped(tabs.upcast_ref(), 12, 24))
+            .hscrollbar_policy(gtk::PolicyType::Never)
+            .vexpand(true)
+            .build();
+        let device_view = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        device_view.append(&clamped(top.upcast_ref(), 24, 12));
+        device_view.append(&scroll);
 
         let stack = gtk::Stack::new();
         stack.add_named(&empty, Some("empty"));
-        stack.add_named(&scroll, Some("device"));
+        stack.add_named(&device_view, Some("device"));
 
         let page = Rc::new(DevicePage {
             model,
@@ -95,7 +100,7 @@ impl DevicePage {
             stack,
             empty,
             top,
-            notifications_page,
+            tabs,
             notifications_box,
             details_box,
             apps_count,
@@ -116,6 +121,11 @@ impl DevicePage {
             });
         }
         page
+    }
+
+    /// Shows a section: "apps", "notifications" or "phone".
+    pub fn show_section(&self, name: &str) {
+        self.tabs.set_visible_child_name(name);
     }
 
     pub fn widget(&self) -> &gtk::Stack {
@@ -149,8 +159,6 @@ impl DevicePage {
         }
         replace_children(&self.details_box, info.as_ref().map(details));
         replace_children(&self.notifications_box, Some(self.notifications(&device)));
-        let count = self.model.notifications.borrow().get(&device.serial).map_or(0, Vec::len);
-        self.notifications_page.set_badge_number(count as u32);
 
         let supported = info.as_ref().map_or(true, |i| i.sdk >= virtual_display_min_sdk());
         self.apps_hint.set_label(if supported { "Click an app to open it in its own window." } else { "App windows need Android 10 or newer." });
