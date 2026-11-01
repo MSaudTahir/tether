@@ -2,14 +2,14 @@
 import PackageDescription
 
 let package = Package(
-    name: "MyDevice",
+    name: "Tether",
     platforms: [.macOS("26.0")],
     targets: [
-        // The Rust core's C interface; build.sh generates the header and builds .rust/libmydevice_core.a.
-        .systemLibrary(name: "MyDeviceCoreFFI"),
+        // The Rust core's C interface; build.sh generates the header and builds .rust/libtether_core.a.
+        .systemLibrary(name: "TetherCoreFFI"),
         .executableTarget(
-            name: "MyDevice",
-            dependencies: ["MyDeviceCoreFFI"],
+            name: "Tether",
+            dependencies: ["TetherCoreFFI"],
             linkerSettings: [.unsafeFlags(["-L\(Context.packageDirectory)/.rust"])]
         ),
     ]

@@ -12,7 +12,7 @@ use crate::{DeviceApp, CoreError, Result};
 
 /// Lists launchable apps with icons on the device; built from helper/Helper.java.
 const HELPER: &[u8] = include_bytes!("../../helper/helper.dex");
-const DEVICE_HELPER: &str = "/data/local/tmp/mydevice-helper.dex";
+const DEVICE_HELPER: &str = "/data/local/tmp/tether-helper.dex";
 
 pub fn load(adb: &Adb, scrcpy: Option<&Path>, data_dir: &Path, serial: &str, force: bool) -> Result<Vec<DeviceApp>> {
     let safe: String = serial.chars().map(|c| if c.is_alphanumeric() || ".-_".contains(c) { c } else { '_' }).collect();
@@ -20,7 +20,12 @@ pub fn load(adb: &Adb, scrcpy: Option<&Path>, data_dir: &Path, serial: &str, for
     let index = folder.join("apps.json");
     if !force {
         // An unreadable cache (e.g. from an older version) is simply fetched again.
-        if let Some(apps) = fs::read(&index).ok().and_then(|json| serde_json::from_slice(&json).ok()) {
+        if let Some(mut apps) = fs::read(&index).ok().and_then(|json| serde_json::from_slice::<Vec<DeviceApp>>(&json).ok()) {
+            // Icon paths are rebuilt so the data folder can move.
+            for app in &mut apps {
+                let path = folder.join("icons").join(format!("{}.png", app.package));
+                app.icon_path = path.exists().then(|| path.to_string_lossy().into_owned());
+            }
             return Ok(apps);
         }
     }
@@ -48,7 +53,7 @@ fn fetch_with_icons(adb: &Adb, data_dir: &Path, serial: &str, icon_dir: &Path) -
     let local = data_dir.join("helper.dex");
     fs::write(&local, HELPER)?;
     adb.run(Some(serial), &["push", &local.to_string_lossy(), DEVICE_HELPER], Duration::from_secs(30))?;
-    let command = format!("CLASSPATH={DEVICE_HELPER} app_process / app.mydevice.Helper");
+    let command = format!("CLASSPATH={DEVICE_HELPER} app_process / tether.Helper");
     let out = text(&adb.run(Some(serial), &["exec-out", &command], Duration::from_secs(120))?);
 
     fs::create_dir_all(icon_dir)?;

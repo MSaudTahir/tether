@@ -3,13 +3,13 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleName</key>
-    <string>MyDevice</string>
+    <string>Tether</string>
     <key>CFBundleDisplayName</key>
-    <string>MyDevice</string>
+    <string>Tether</string>
     <key>CFBundleIdentifier</key>
-    <string>app.mydevice.MyDevice</string>
+    <string>io.github.msaudtahir.Tether</string>
     <key>CFBundleExecutable</key>
-    <string>MyDevice</string>
+    <string>Tether</string>
     <key>CFBundleIconFile</key>
     <string>AppIcon</string>
     <key>CFBundlePackageType</key>

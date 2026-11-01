@@ -1,4 +1,4 @@
-package app.mydevice;
+package tether;
 
 import android.app.Application;
 import android.content.Context;

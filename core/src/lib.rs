@@ -1,4 +1,4 @@
-//! Shared logic for the MyDevice apps, exposed to Swift/C# through UniFFI.
+//! Shared logic for the Tether apps, exposed to Swift/C# through UniFFI.
 //!
 //! All methods block (they run adb, scrcpy or downloads), so UIs call them off the main thread.
 

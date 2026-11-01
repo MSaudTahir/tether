@@ -1,12 +1,12 @@
 [package]
-name = "mydevice-core"
+name = "tether-core"
 version = "0.1.0"
 edition = "2021"
 rust-version = "1.86"
-description = "Shared logic for the MyDevice apps: adb, scrcpy, app cache, settings"
+description = "Shared logic for the Tether apps: adb, scrcpy, app cache, settings"
 
 [lib]
-name = "mydevice_core"
+name = "tether_core"
 crate-type = ["lib", "staticlib", "cdylib"]
 
 [[bin]]

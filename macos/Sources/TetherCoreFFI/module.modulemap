@@ -1,0 +1,5 @@
+module tether_coreFFI {
+    header "tether_coreFFI.h"
+    link "tether_core"
+    export *
+}

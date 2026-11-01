@@ -1,6 +1,6 @@
 <p align="center"><img src="icon/icon.png" width="128" alt=""></p>
 
-# MyDevice
+# Tether
 
 A small desktop app for using your Android phone from your computer, built on
 [scrcpy](https://github.com/Genymobile/scrcpy).
@@ -31,13 +31,13 @@ A small desktop app for using your Android phone from your computer, built on
 ## Install
 
 Download the latest build from the [Releases](../../releases) page, unzip it and move
-`MyDevice.app` to Applications.
+`Tether.app` to Applications.
 
 The app isn't notarized yet, so macOS will block it the first time. Right-click the app and
 choose **Open**, or run:
 
 ```sh
-xattr -dr com.apple.quarantine /Applications/MyDevice.app
+xattr -dr com.apple.quarantine /Applications/Tether.app
 ```
 
 ## Using it
@@ -64,16 +64,16 @@ xattr -dr com.apple.quarantine /Applications/MyDevice.app
 You need [Rust](https://rustup.rs) (1.86+) and Xcode 26.
 
 ```sh
-git clone <this repo>
-cd mydevice
-macos/build.sh                 # → macos/build/MyDevice.app
-open macos/build/MyDevice.app
+git clone https://github.com/MSaudTahir/tether.git
+cd tether
+macos/build.sh                 # → macos/build/Tether.app
+open macos/build/Tether.app
 ```
 
 `build.sh` builds the Rust core as a static library, generates its Swift bindings with
 [UniFFI](https://mozilla.github.io/uniffi-rs/), builds the app with SwiftPM, and puts together the
 `.app` bundle (ad-hoc signed). The app's data (scrcpy, the app cache, settings) lives in
-`~/Library/Application Support/app.mydevice.MyDevice`.
+`~/Library/Application Support/io.github.msaudtahir.Tether`.
 
 ### Project layout
 
@@ -92,7 +92,7 @@ One shared core holds all the logic; each platform gets a thin native UI on top 
 ```sh
 cd core
 cargo test
-cargo run --example smoke -- /tmp/mydevice-data   # runs everything against a connected phone
+cargo run --example smoke -- /tmp/tether-data   # runs everything against a connected phone
 ```
 
 Core calls block (they run adb, scrcpy or downloads), so the UIs call them off the main thread.
@@ -110,7 +110,7 @@ All the mirroring, control and virtual display magic is scrcpy; this app is just
 end for it. If you find it useful, consider [supporting its author](https://github.com/sponsors/rom1v)
 too.
 
-scrcpy is licensed under the Apache License 2.0. MyDevice downloads official scrcpy releases from
+scrcpy is licensed under the Apache License 2.0. Tether downloads official scrcpy releases from
 GitHub (verifying their SHA-256 checksums) rather than redistributing it.
 
 Android is a trademark of Google LLC. The Android robot is reproduced or modified from work created

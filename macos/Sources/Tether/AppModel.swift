@@ -24,8 +24,12 @@ final class AppModel {
     private var started = false
 
     private init() {
-        // Named after the bundle ID: "MyDevice" would collide with the Python app's "mydevice" folder (case-insensitive).
-        let dir = URL.applicationSupportDirectory.appending(path: "app.mydevice.MyDevice")
+        let dir = URL.applicationSupportDirectory.appending(path: "io.github.msaudtahir.Tether")
+        // Keep scrcpy, settings and the app cache from when the app was called MyDevice.
+        let old = URL.applicationSupportDirectory.appending(path: "app.mydevice.MyDevice")
+        if !FileManager.default.fileExists(atPath: dir.path) {
+            try? FileManager.default.moveItem(at: old, to: dir)
+        }
         core = Core(dataDir: dir.path)
         config = core.config()
         needsSetup = core.needsSetup()

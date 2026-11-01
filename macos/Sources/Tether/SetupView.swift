@@ -67,7 +67,7 @@ private struct ScrcpyStep: View {
             StepHeader(
                 symbol: "rectangle.on.rectangle",
                 title: "Get scrcpy",
-                subtitle: "MyDevice uses scrcpy to show your phone's screen. It's free and open source."
+                subtitle: "Tether uses scrcpy to show your phone's screen. It's free and open source."
             )
             Group {
                 if downloading {

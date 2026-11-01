@@ -10,7 +10,7 @@ from pathlib import Path
 from mydevice.adb import list_apps
 
 HELPER = Path(__file__).with_name("helper.dex")  # built from helper/Helper.java
-DEVICE_HELPER = "/data/local/tmp/mydevice-helper.dex"
+DEVICE_HELPER = "/data/local/tmp/tether-helper.dex"
 
 
 @dataclass
@@ -45,7 +45,7 @@ def load_apps(adb, scrcpy, cache_root, serial, force=False):
 
 def fetch_with_icons(adb, serial, icon_dir):
     adb.run("push", str(HELPER), DEVICE_HELPER, serial=serial)
-    out = adb.text("exec-out", f"CLASSPATH={DEVICE_HELPER} app_process / app.mydevice.Helper", serial=serial, timeout=120)
+    out = adb.text("exec-out", f"CLASSPATH={DEVICE_HELPER} app_process / tether.Helper", serial=serial, timeout=120)
     icon_dir.mkdir(parents=True, exist_ok=True)
     apps = []
     # Lines are "package \t system \t label \t base64 png". Anything else is OEM log noise.

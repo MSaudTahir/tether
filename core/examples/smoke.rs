@@ -3,7 +3,7 @@ use std::time::Instant;
 
 fn main() {
     let dir = std::env::args().nth(1).expect("data dir");
-    let core = mydevice_core::Core::new(dir);
+    let core = tether_core::Core::new(dir);
     let t = Instant::now();
     if core.bundled_scrcpy_version().is_none() {
         let release = core.latest_release().unwrap().expect("no release for this platform");

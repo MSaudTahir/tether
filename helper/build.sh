@@ -8,7 +8,7 @@ D8=$(ls -d "$SDK"/build-tools/*/d8 | sort -V | tail -1)
 OUT=$(mktemp -d)
 
 javac --release 11 -classpath "$JAR" -d "$OUT" Helper.java
-"$D8" --release --min-api 21 --lib "$JAR" --output "$OUT" "$OUT"/app/mydevice/*.class
+"$D8" --release --min-api 21 --lib "$JAR" --output "$OUT" "$OUT"/tether/*.class
 cp "$OUT/classes.dex" helper.dex
 cp helper.dex ../python/mydevice/helper.dex  # the Python app keeps its own copy until it is retired
 rm -rf "$OUT"

@@ -1,12 +1,12 @@
 import SwiftUI
 
 @main
-struct MyDeviceApp: App {
+struct TetherApp: App {
     @NSApplicationDelegateAdaptor private var delegate: AppDelegate
     @State private var model = AppModel.shared
 
     var body: some Scene {
-        Window("MyDevice", id: "main") {
+        Window("Tether", id: "main") {
             Group {
                 if model.needsSetup {
                     SetupView()

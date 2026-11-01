@@ -129,7 +129,7 @@ impl Toolchain {
 
 fn get(url: &str) -> Result<Vec<u8>> {
     let mut data = Vec::new();
-    ureq::get(url).set("User-Agent", "mydevice").call()?.into_reader().read_to_end(&mut data)?;
+    ureq::get(url).set("User-Agent", "tether").call()?.into_reader().read_to_end(&mut data)?;
     Ok(data)
 }
 

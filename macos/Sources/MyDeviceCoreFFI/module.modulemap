@@ -1,5 +1,0 @@
-module mydevice_coreFFI {
-    header "mydevice_coreFFI.h"
-    link "mydevice_core"
-    export *
-}
