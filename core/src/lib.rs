@@ -321,17 +321,27 @@ impl Core {
     }
 
     /// Opens an app in its own window, on a new virtual display sized by the window_size config.
-    pub fn open_app(&self, serial: String, package: String, title: String) -> Result<Arc<Session>> {
-        let size = self.config().window_size;
-        if parse_window_size(size.clone()).is_none() {
+    /// `scale` is the screen's pixels per point (2 on Retina): scrcpy sizes the window in points, so the
+    /// display gets that many more pixels (and dpi) to look sharp at the same size.
+    pub fn open_app(&self, serial: String, package: String, title: String, scale: f32) -> Result<Arc<Session>> {
+        let config = self.config();
+        let Some(size) = parse_window_size(config.window_size.clone()) else {
             return Err(CoreError::Failed("Window size must look like 1920x1080/280.".into()));
-        }
-        if self.config().capture_mouse {
+        };
+        if config.capture_mouse {
             self.adb()?.mouse_follows_virtual_displays(&serial)?;
         }
-        let display = if size.is_empty() { "--new-display".into() } else { format!("--new-display={size}") };
-        let mut args = vec!["-s".into(), serial, display, format!("--start-app={package}"), format!("--window-title={title}")];
-        if self.config().resizable_windows {
+        let size = scaled_window_size(size, scale);
+        let mut args = vec!["-s".into(), serial, format!("--start-app={package}"), format!("--window-title={title}")];
+        args.push(match format_window_size(size) {
+            text if text.is_empty() => "--new-display".into(),
+            text => format!("--new-display={text}"),
+        });
+        if size.width > 1920 || size.height > 1920 {
+            // H.264 encoders often stop at 1080p; H.265 handles 4K and needs less bandwidth for it.
+            args.extend(["--video-codec=h265".into(), "--video-bit-rate=20M".into()]);
+        }
+        if config.resizable_windows {
             args.push("--flex-display".into());
         }
         self.start_scrcpy(args)

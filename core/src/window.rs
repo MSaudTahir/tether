@@ -76,6 +76,17 @@ pub fn window_choice(size: WindowSize) -> WindowChoice {
     }
 }
 
+/// A size in points → the display size in pixels for a screen with `scale` pixels per point.
+/// The device's own size (0) is left alone: its window is shrunk to fit the screen, which keeps it sharp.
+pub fn scaled_window_size(size: WindowSize, scale: f32) -> WindowSize {
+    let scale = scale.clamp(1.0, 3.0);
+    let by = |n: u32| (n as f32 * scale).round() as u32;
+    if size.width == 0 {
+        return size;
+    }
+    WindowSize { width: by(size.width), height: by(size.height), dpi: by(size.dpi) }
+}
+
 /// "" (device size), "WxH", "/DPI" or "WxH/DPI".
 #[uniffi::export]
 pub fn parse_window_size(text: String) -> Option<WindowSize> {
@@ -147,5 +158,7 @@ mod tests {
         assert_eq!(describe_window_size(parse("").unwrap()), "Same as Phone");
         assert_eq!(window_choice(parse("1600x1000/240").unwrap()).preset, None);
         assert_eq!(describe_window_size(parse("1600x1000/240").unwrap()), "1600 × 1000 · 240 dpi");
+        assert_eq!(scaled_window_size(portrait, 2.0), WindowSize { width: 2160, height: 3840, dpi: 700 });
+        assert_eq!(scaled_window_size(parse("").unwrap(), 2.0), parse("").unwrap());
     }
 }
