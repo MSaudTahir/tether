@@ -15,20 +15,13 @@ const HELPER: &[u8] = include_bytes!("../../helper/helper.dex");
 const DEVICE_HELPER: &str = "/data/local/tmp/tether-helper.dex";
 
 pub fn load(adb: &Adb, scrcpy: Option<&Path>, data_dir: &Path, serial: &str, force: bool) -> Result<Vec<DeviceApp>> {
-    let safe: String = serial.chars().map(|c| if c.is_alphanumeric() || ".-_".contains(c) { c } else { '_' }).collect();
-    let folder = data_dir.join("apps").join(safe);
-    let index = folder.join("apps.json");
     if !force {
-        // An unreadable cache (e.g. from an older version) is simply fetched again.
-        if let Some(mut apps) = fs::read(&index).ok().and_then(|json| serde_json::from_slice::<Vec<DeviceApp>>(&json).ok()) {
-            // Icon paths are rebuilt so the data folder can move.
-            for app in &mut apps {
-                let path = folder.join("icons").join(format!("{}.png", app.package));
-                app.icon_path = path.exists().then(|| path.to_string_lossy().into_owned());
-            }
+        if let Some(apps) = cached(data_dir, serial) {
             return Ok(apps);
         }
     }
+    let folder = cache_folder(data_dir, serial);
+    let index = folder.join("apps.json");
 
     let _ = fs::remove_dir_all(&folder);
     let mut apps = match fetch_with_icons(adb, data_dir, serial, &folder.join("icons")) {
@@ -47,6 +40,23 @@ pub fn load(adb: &Adb, scrcpy: Option<&Path>, data_dir: &Path, serial: &str, for
     fs::create_dir_all(&folder)?;
     fs::write(&index, serde_json::to_vec(&apps)?)?;
     Ok(apps)
+}
+
+/// The cached app list, if there is a readable one (an older format is simply fetched again).
+pub fn cached(data_dir: &Path, serial: &str) -> Option<Vec<DeviceApp>> {
+    let folder = cache_folder(data_dir, serial);
+    let mut apps: Vec<DeviceApp> = serde_json::from_slice(&fs::read(folder.join("apps.json")).ok()?).ok()?;
+    // Icon paths are rebuilt so the data folder can move.
+    for app in &mut apps {
+        let path = folder.join("icons").join(format!("{}.png", app.package));
+        app.icon_path = path.exists().then(|| path.to_string_lossy().into_owned());
+    }
+    Some(apps)
+}
+
+fn cache_folder(data_dir: &Path, serial: &str) -> PathBuf {
+    let safe: String = serial.chars().map(|c| if c.is_alphanumeric() || ".-_".contains(c) { c } else { '_' }).collect();
+    data_dir.join("apps").join(safe)
 }
 
 fn fetch_with_icons(adb: &Adb, data_dir: &Path, serial: &str, icon_dir: &Path) -> Result<Vec<DeviceApp>> {

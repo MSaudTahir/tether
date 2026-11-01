@@ -9,6 +9,7 @@ A small desktop app for using your Android phone from your computer, built on
 - **Open apps in their own windows**: pick an app from a grid of your phone's apps and it opens on
   a separate virtual display, sized like a desktop window (Small, Medium, Large or the phone's own
   size, portrait or landscape) and resizable. Needs Android 10+.
+- **Notifications**: see the phone's notifications; click one to open its app.
 - **Control panel**: storage, memory, battery health and temperature, chipset, display and more;
   take screenshots, install APKs (or drop them on the window), press Back/Home/Volume/Power, switch
   dark mode or "stay awake", and restart the phone.
@@ -50,8 +51,9 @@ choose **Open**, or run `xattr -dr com.apple.quarantine /Applications/Tether.app
 2. Connect your phone with USB and accept the *Allow USB debugging?* prompt on the phone. For Wi-Fi,
    use **Pair** (Developer options → Wireless debugging → *Pair device with pairing code*), or
    press **Go Wireless** while connected by USB.
-3. Select the phone in the sidebar, then **Mirror Screen** or click an app to open it in its own
-   window. **Refresh** reloads the app list; it's cached until then.
+3. Select the phone in the sidebar. Its page has the controls on top and tabs below: **Apps**
+   (click one to open it in its own window), **Notifications** and **Phone** (details). Use
+   **Mirror Screen** for the whole screen. **Refresh** reloads the app list; it's cached until then.
 
 | | macOS | Linux / Windows |
 |---|---|---|

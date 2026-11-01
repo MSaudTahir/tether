@@ -120,6 +120,7 @@ public sealed partial class MainWindow : Window
 
         ControlsHost.Content = info != null ? ControlPanel.Controls(device, info) : null;
         DetailsHost.Content = info != null ? ControlPanel.Details(info) : null;
+        NotificationsHost.Content = info != null ? ControlPanel.Notifications(device, model.Notifications.GetValueOrDefault(device.serial) ?? []) : null;
 
         var supported = (info?.sdk ?? uint.MaxValue) >= TetherCoreMethods.VirtualDisplayMinSdk();
         AppsHint.Text = supported ? "Click an app to open it in its own window." : "App windows need Android 10 or newer.";
@@ -163,17 +164,17 @@ public sealed partial class MainWindow : Window
     }
 
     /// The app's cached icon, or a letter on a color derived from its name.
-    static FrameworkElement AppIcon(DeviceApp app)
+    internal static FrameworkElement AppIcon(DeviceApp app, double size = 56)
     {
         if (app.iconPath != null)
         {
-            return new Image { Width = 56, Height = 56, Source = new BitmapImage(new Uri(app.iconPath)) { DecodePixelWidth = 112 } };
+            return new Image { Width = size, Height = size, Source = new BitmapImage(new Uri(app.iconPath)) { DecodePixelWidth = (int)size * 2 } };
         }
         var hue = app.package.Aggregate(0, (hash, c) => (hash * 31 + c) % 360);
-        var letter = new Border { Width = 56, Height = 56, CornerRadius = new CornerRadius(14), Background = new SolidColorBrush(FromHsv(hue, 0.45, 0.8)) };
+        var letter = new Border { Width = size, Height = size, CornerRadius = new CornerRadius(size / 4), Background = new SolidColorBrush(FromHsv(hue, 0.45, 0.8)) };
         letter.Child = new TextBlock
         {
-            Text = app.name[..1].ToUpperInvariant(), FontSize = 26, FontWeight = Microsoft.UI.Text.FontWeights.Bold,
+            Text = app.name[..1].ToUpperInvariant(), FontSize = size / 2.2, FontWeight = Microsoft.UI.Text.FontWeights.Bold,
             Foreground = new SolidColorBrush(Microsoft.UI.Colors.White), HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
         };
         return letter;

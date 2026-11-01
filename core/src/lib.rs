@@ -4,6 +4,7 @@
 
 mod adb;
 mod apps;
+mod notifications;
 mod session;
 mod toolchain;
 mod util;
@@ -91,6 +92,21 @@ pub struct DeviceInfo {
     /// Screen stays on while charging (developer option).
     pub stay_awake: bool,
     pub screen_on: bool,
+}
+
+/// A notification showing on the phone.
+#[derive(Debug, Clone, PartialEq, uniffi::Record)]
+pub struct PhoneNotification {
+    /// Unique while the notification is showing.
+    pub key: String,
+    pub package: String,
+    /// From the app list cache; empty if the app isn't in it (e.g. system notifications).
+    pub app_name: String,
+    pub icon_path: Option<String>,
+    pub title: String,
+    pub text: String,
+    /// Milliseconds since 1970.
+    pub time: u64,
 }
 
 /// Buttons a phone has, for remote control.
@@ -269,6 +285,20 @@ impl Core {
     pub fn apps(&self, serial: String, force: bool) -> Result<Vec<DeviceApp>> {
         let scrcpy = self.scrcpy_path().map(PathBuf::from);
         apps::load(&self.adb()?, scrcpy.as_deref(), &self.data_dir, &serial, force)
+    }
+
+    /// The phone's current notifications, newest first (ongoing ones, like music players, are left out).
+    pub fn notifications(&self, serial: String) -> Result<Vec<PhoneNotification>> {
+        let out = self.adb()?.text(Some(&serial), &["shell", "dumpsys notification --noredact"])?;
+        let apps = apps::cached(&self.data_dir, &serial).unwrap_or_default();
+        let mut list = notifications::parse(&out);
+        for notification in &mut list {
+            if let Some(app) = apps.iter().find(|a| a.package == notification.package) {
+                notification.app_name = app.name.clone();
+                notification.icon_path = app.icon_path.clone();
+            }
+        }
+        Ok(list)
     }
 
     pub fn pair(&self, address: String, code: String) -> Result<()> {

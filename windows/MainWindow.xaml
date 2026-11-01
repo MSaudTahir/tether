@@ -112,6 +112,7 @@
 
                             <ContentControl x:Name="ControlsHost" HorizontalContentAlignment="Stretch" />
                             <ContentControl x:Name="DetailsHost" HorizontalContentAlignment="Stretch" />
+                            <ContentControl x:Name="NotificationsHost" HorizontalContentAlignment="Stretch" />
 
                             <!-- Apps -->
                             <StackPanel Spacing="14">

@@ -5,10 +5,26 @@ private let stateHints = [
     "offline": "The device is offline. Try reconnecting it.",
 ]
 
+/// The device page's sections, below the header and controls.
+enum DeviceTab: String, CaseIterable {
+    case apps = "Apps"
+    case notifications = "Notifications"
+    case phone = "Phone"
+
+    var systemImage: String {
+        switch self {
+        case .apps: "square.grid.2x2"
+        case .notifications: "bell"
+        case .phone: "info.circle"
+        }
+    }
+}
+
 struct DeviceView: View {
     @Environment(AppModel.self) private var model
     let device: Device
     let search: String
+    @State private var tab = DeviceTab.apps
 
     var body: some View {
         if device.state != "device" {
@@ -23,9 +39,28 @@ struct DeviceView: View {
                     DeviceHeader(device: device, info: model.info[device.serial])
                     if let info = model.info[device.serial] {
                         ControlsCard(device: device, info: info)
-                        DetailsCard(info: info)
                     }
-                    AppsSection(device: device, search: search)
+                    Picker("Section", selection: $tab) {
+                        ForEach(DeviceTab.allCases, id: \.self) { tab in
+                            Label(title(tab), systemImage: tab.systemImage).tag(tab)
+                        }
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    .fixedSize()
+                    .frame(maxWidth: .infinity)
+                    switch tab {
+                    case .apps:
+                        AppsSection(device: device, search: search)
+                    case .notifications:
+                        NotificationsList(device: device)
+                    case .phone:
+                        if let info = model.info[device.serial] {
+                            DetailsCard(info: info)
+                        } else {
+                            ProgressView().frame(maxWidth: .infinity, minHeight: 120)
+                        }
+                    }
                 }
                 .padding(28)
             }
@@ -36,6 +71,11 @@ struct DeviceView: View {
                 return true
             }
         }
+    }
+
+    private func title(_ tab: DeviceTab) -> String {
+        guard tab == .notifications, let count = model.notifications[device.serial]?.count, count > 0 else { return tab.rawValue }
+        return "\(tab.rawValue) (\(count))"
     }
 }
 

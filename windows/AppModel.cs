@@ -24,6 +24,7 @@ sealed class AppModel
     public readonly Dictionary<string, DeviceApp[]> Apps = [];
     public readonly HashSet<string> LoadingApps = [];
     public readonly Dictionary<string, string> AppErrors = [];
+    public readonly Dictionary<string, PhoneNotification[]> Notifications = [];
     public Release? Update;
     public bool InstallingUpdate;
 
@@ -45,6 +46,9 @@ sealed class AppModel
 
     void Notify() => Changed?.Invoke();
 
+    /// Redraws the views after a view-only change.
+    public void Redraw() => Notify();
+
     /// Starts watching for devices and checks for a scrcpy update.
     public async void Start()
     {
@@ -54,7 +58,8 @@ sealed class AppModel
         for (var tick = 1; ; tick++)
         {
             await RefreshDevices();
-            // Keep battery, memory etc. current for the device on screen.
+            // Keep notifications, battery, memory etc. current for the device on screen.
+            if (tick % 3 == 0 && Selection is { } selected) await LoadNotifications(selected);
             if (tick % 15 == 0 && Selection is { } serial) await LoadInfo(serial);
             await Task.Delay(2000);
         }
@@ -102,6 +107,30 @@ sealed class AppModel
     {
         if (Devices.FirstOrDefault(d => d.serial == serial)?.state != "device") return;
         await Task.WhenAll(LoadInfo(serial), LoadApps(serial, force: false));
+        await LoadNotifications(serial); // after the apps, which give them names and icons
+    }
+
+    async Task LoadNotifications(string serial)
+    {
+        if (Devices.FirstOrDefault(d => d.serial == serial)?.state != "device") return;
+        try
+        {
+            var list = await Task.Run(() => Core.Notifications(serial));
+            if (Notifications.TryGetValue(serial, out var shown) && shown.SequenceEqual(list)) return;
+            Notifications[serial] = list;
+            Notify();
+        }
+        catch { }
+    }
+
+    /// Opens the notification's app: in its own window if the phone supports that, else mirrored.
+    public void Open(PhoneNotification notification, Device device)
+    {
+        var supported = Info.TryGetValue(device.serial, out var info) && info.sdk >= TetherCoreMethods.VirtualDisplayMinSdk();
+        if (!supported) { Mirror(device); return; }
+        var app = Apps.GetValueOrDefault(device.serial)?.FirstOrDefault(a => a.package == notification.package)
+            ?? new DeviceApp(notification.appName, notification.package, false, null);
+        Open(app, device);
     }
 
     /// Reloads info, and the app list from the device rather than the cache.

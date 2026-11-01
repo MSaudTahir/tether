@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.Linq;
 using Microsoft.UI.Xaml;
 using Microsoft.UI.Xaml.Controls;
 using Microsoft.UI.Xaml.Controls.Primitives;
@@ -74,6 +75,55 @@ static class ControlPanel
         columns.Children.Add(left);
         columns.Children.Add(right);
         return Card(columns);
+    }
+
+    static bool showAllNotifications;
+
+    /// The phone's current notifications; clicking one opens its app.
+    public static FrameworkElement Notifications(Device device, PhoneNotification[] all)
+    {
+        var section = new StackPanel { Spacing = 10 };
+        var header = new Grid();
+        var title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        title.Children.Add(new TextBlock { Text = "Notifications", Style = Dialogs.Resource<Style>("SubtitleTextBlockStyle") });
+        if (all.Length > 0)
+            title.Children.Add(new TextBlock { Text = all.Length.ToString(), Style = Dialogs.Resource<Style>("SubtitleTextBlockStyle"), Opacity = 0.6 });
+        header.Children.Add(title);
+        if (all.Length > 5)
+        {
+            var toggle = new HyperlinkButton { Content = showAllNotifications ? "Show Fewer" : "Show All", HorizontalAlignment = HorizontalAlignment.Right };
+            toggle.Click += (_, _) => { showAllNotifications = !showAllNotifications; Model.Redraw(); };
+            header.Children.Add(toggle);
+        }
+        section.Children.Add(header);
+        if (all.Length == 0)
+        {
+            section.Children.Add(Dialogs.Note("No notifications."));
+            return section;
+        }
+        var list = new StackPanel { Spacing = 2 };
+        foreach (var notification in showAllNotifications ? all : all.Take(5))
+        {
+            var appName = notification.appName == "" ? notification.package : notification.appName;
+            var when = DateTimeOffset.FromUnixTimeMilliseconds((long)notification.time).ToLocalTime().ToString("t");
+            var text = new StackPanel { Spacing = 2 };
+            text.Children.Add(Dialogs.Note($"{appName} · {when}"));
+            if (notification.title != "") text.Children.Add(new TextBlock { Text = notification.title, Style = Dialogs.Resource<Style>("BodyStrongTextBlockStyle"), TextTrimming = TextTrimming.CharacterEllipsis });
+            if (notification.text != "") text.Children.Add(new TextBlock { Text = notification.text, TextWrapping = TextWrapping.Wrap, MaxLines = 3, TextTrimming = TextTrimming.CharacterEllipsis, Opacity = 0.75 });
+            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
+            row.Children.Add(MainWindow.AppIcon(new DeviceApp(appName, notification.package, false, notification.iconPath), 32));
+            row.Children.Add(text);
+            var button = new Button
+            {
+                Content = row, HorizontalAlignment = HorizontalAlignment.Stretch, HorizontalContentAlignment = HorizontalAlignment.Left,
+                Padding = new Thickness(10), Background = new SolidColorBrush(Microsoft.UI.Colors.Transparent), BorderThickness = new Thickness(0),
+            };
+            ToolTipService.SetToolTip(button, $"Open {appName}");
+            button.Click += (_, _) => Model.Open(notification, device);
+            list.Children.Add(button);
+        }
+        section.Children.Add(Card(list));
+        return section;
     }
 
     static string Battery(DeviceInfo info)

@@ -16,6 +16,7 @@ final class AppModel {
     var apps: [String: [DeviceApp]] = [:]
     var loadingApps: Set<String> = []
     var appErrors: [String: String] = [:]
+    var notifications: [String: [PhoneNotification]] = [:]
     var update: Release?
     var installingUpdate = false
     /// An error to show in an alert.
@@ -44,7 +45,8 @@ final class AppModel {
         Task {
             for tick in 1... {
                 await refreshDevices()
-                // Keep battery, memory etc. current for the device on screen.
+                // Keep notifications, battery, memory etc. current for the device on screen.
+                if tick % 3 == 0, let serial = selection { await loadNotifications(serial) }
                 if tick % 15 == 0, let serial = selection { await loadInfo(serial) }
                 try? await Task.sleep(for: .seconds(2))
             }
@@ -71,6 +73,26 @@ final class AppModel {
         async let info: Void = loadInfo(serial)
         async let apps: Void = loadApps(serial)
         _ = await (info, apps)
+        await loadNotifications(serial)  // after the apps, which give them names and icons
+    }
+
+    private func loadNotifications(_ serial: String) async {
+        guard devices.first(where: { $0.serial == serial })?.state == "device" else { return }
+        let core = core
+        if let list = try? await offMain({ try core.notifications(serial: serial) }), list != notifications[serial] {
+            notifications[serial] = list
+        }
+    }
+
+    /// Opens the notification's app: in its own window if the phone supports that, else mirrored.
+    func open(_ notification: PhoneNotification, on device: Device) {
+        let app = apps[device.serial]?.first { $0.package == notification.package }
+            ?? DeviceApp(name: notification.appName, package: notification.package, system: false, iconPath: nil)
+        if (info[device.serial]?.sdk ?? 0) >= virtualDisplayMinSdk() {
+            open(app, on: device)
+        } else {
+            mirror(device)
+        }
     }
 
     /// Reloads info, and the app list from the device rather than the cache.
