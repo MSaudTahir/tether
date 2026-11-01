@@ -585,14 +585,16 @@ impl Core {
         }
         let phone = if size.width == 0 { adb.display_size(&serial) } else { None };
         let mut args = vec!["-s".into(), serial, format!("--start-app={package}"), format!("--window-title={title}")];
+        let window = app_window(size, phone, screen);
         let display = if config.resizable_windows {
-            // scrcpy opens a flex display's window at its size in pixels, taken as points, and doesn't
-            // allow setting the window size. So the display is in points: no cropping, but not Retina-sharp.
+            // scrcpy opens a flex display's window at the display's size, and doesn't allow setting the
+            // window size. Where windows are sized in points (macOS), the display has to be too: no
+            // cropping, but not Retina-sharp. Where they're in pixels (Windows), it's sharp anyway.
             args.push("--flex-display".into());
-            app_window(size, phone, Screen { scale: 1.0, ..screen }).display
+            if screen.pixel_windows { window.display } else { app_window(size, phone, Screen { scale: 1.0, ..screen }).display }
         } else {
-            let window = app_window(size, phone, screen);
-            args.extend([format!("--window-width={}", window.width), format!("--window-height={}", window.height)]);
+            let (width, height) = if screen.pixel_windows { (window.display.width, window.display.height) } else { (window.width, window.height) };
+            args.extend([format!("--window-width={width}"), format!("--window-height={height}")]);
             window.display
         };
         args.push(format!("--new-display={}", format_window_size(display)));

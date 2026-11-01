@@ -78,7 +78,7 @@ impl Model {
             installing: Default::default(),
             update: Default::default(),
             installing_update: Cell::new(false),
-            screen: Cell::new(Screen { width: 1280, height: 800, scale: 1.0 }),
+            screen: Cell::new(Screen { width: 1280, height: 800, scale: 1.0, pixel_windows: false }),
             loaded: Default::default(),
             on_change: Default::default(),
             on_alert: Default::default(),

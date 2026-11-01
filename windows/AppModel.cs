@@ -197,7 +197,7 @@ sealed class AppModel
     public void Mirror(Device device) => Launch(() => Core.Mirror(device.serial, Name(device)));
 
     /// The usable screen area app windows open on, in points (DIPs), and its scale (1.5 at 150%).
-    public Screen Screen = new(1280, 800, 1);
+    public Screen Screen = new(1280, 800, 1, true);
 
     public void Open(DeviceApp app, Device device) =>
         Launch(() => Core.OpenApp(device.serial, app.package, $"{app.name} · {Name(device)}", Screen));

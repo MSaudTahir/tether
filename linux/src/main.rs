@@ -362,8 +362,8 @@ fn screen_of(window: &adw::ApplicationWindow) -> Screen {
         .or_else(|| display.monitors().item(0).and_downcast::<gdk::Monitor>());
     match monitor {
         // Leave room for the top bar and dock.
-        Some(m) => Screen { width: m.geometry().width() as u32, height: m.geometry().height() as u32 - 80, scale: m.scale() as f32 },
-        None => Screen { width: 1280, height: 800, scale: 1.0 },
+        Some(m) => Screen { width: m.geometry().width() as u32, height: m.geometry().height() as u32 - 80, scale: m.scale() as f32, pixel_windows: false },
+        None => Screen { width: 1280, height: 800, scale: 1.0, pixel_windows: false },
     }
 }
 

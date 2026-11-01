@@ -86,8 +86,10 @@ pub struct Screen {
     /// Points.
     pub width: u32,
     pub height: u32,
-    /// Pixels per point (2 on Retina).
+    /// Pixels per point (2 on Retina, 2 at 200% on Windows).
     pub scale: f32,
+    /// scrcpy sizes its windows in physical pixels here (Windows), not points (macOS, Linux).
+    pub pixel_windows: bool,
 }
 
 /// How to open an app window: the window's size in points, and the display behind it in pixels.
@@ -196,7 +198,7 @@ mod tests {
 
     #[test]
     fn app_windows() {
-        let retina = Screen { width: 1512, height: 875, scale: 2.0 };
+        let retina = Screen { width: 1512, height: 875, scale: 2.0, pixel_windows: false };
         // Fits: one dp per point, twice the pixels.
         let small = app_window(parse("960x540/160").unwrap(), None, retina);
         assert_eq!(small, AppWindow { width: 960, height: 540, display: WindowSize { width: 1920, height: 1080, dpi: 320 } });

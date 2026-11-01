@@ -175,7 +175,8 @@ final class AppModel {
         let main = NSScreen.main
         let screen = Screen(
             width: UInt32(main?.visibleFrame.width ?? 1280), height: UInt32(main?.visibleFrame.height ?? 800),
-            scale: Float(main?.backingScaleFactor ?? 1)
+            scale: Float(main?.backingScaleFactor ?? 1),
+            pixelWindows: false  // scrcpy sizes windows in points on macOS
         )
         launch { core in try core.openApp(serial: device.serial, package: app.package, title: title, screen: screen) }
     }

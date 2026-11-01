@@ -46,7 +46,8 @@ public sealed partial class MainWindow : Window
         {
             var scale = root.RasterizationScale;
             var area = Microsoft.UI.Windowing.DisplayArea.GetFromWindowId(AppWindow.Id, Microsoft.UI.Windowing.DisplayAreaFallback.Primary).WorkArea;
-            model.Screen = new Screen((uint)(area.Width / scale), (uint)(area.Height / scale), (float)scale);
+            // scrcpy sizes windows in physical pixels on Windows.
+            model.Screen = new Screen((uint)(area.Width / scale), (uint)(area.Height / scale), (float)scale, true);
         }
         Setup.Visibility = model.NeedsSetup ? Visibility.Visible : Visibility.Collapsed;
         Main.Visibility = Toolbar.Visibility = model.NeedsSetup ? Visibility.Collapsed : Visibility.Visible;
